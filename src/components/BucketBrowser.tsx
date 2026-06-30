@@ -328,7 +328,7 @@ export function BucketBrowser({
   }
 
   return (
-    <div className="flex bg-slate-900/60 border border-white/5 rounded-xl overflow-hidden h-[540px]">
+    <div className="flex bg-slate-900/60 border border-white/5 rounded-xl overflow-hidden flex-1 min-h-0 w-full">
       {/* Sidebar: Bucket list */}
       <div className="w-[200px] border-r border-white/5 bg-slate-950/40 p-4 flex flex-col gap-3">
         <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">

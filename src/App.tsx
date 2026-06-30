@@ -165,9 +165,9 @@ export default function App() {
       </header>
 
       {/* Main Area */}
-      <main className="flex-1 p-6 flex flex-col justify-center">
+      <main className="flex-1 p-6 flex flex-col min-h-0">
         {isConnected ? (
-          <div className="w-full max-w-4xl mx-auto flex-1">
+          <div className="w-full max-w-4xl mx-auto flex-1 flex flex-col min-h-0">
             {activeProvider === "aws" ? (
               <BucketBrowser
                 provider="aws"
