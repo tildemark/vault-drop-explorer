@@ -144,11 +144,16 @@ async fn list_objects(
 
     let resp = req.send().await.map_err(|e| e.to_string())?;
 
+    println!("[DEBUG S3] list_objects bucket='{}', prefix='{:?}'", bucket, prefix);
+    println!("[DEBUG S3] contents: {:?}", resp.contents());
+    println!("[DEBUG S3] common_prefixes: {:?}", resp.common_prefixes());
+
     let mut list = Vec::new();
 
     // Add folders from common_prefixes
     for prefix_obj in resp.common_prefixes() {
         if let Some(pfx) = prefix_obj.prefix() {
+            println!("[DEBUG S3] parsed folder prefix: {}", pfx);
             list.push(S3Object {
                 key: pfx.to_string(),
                 size: 0,
@@ -160,6 +165,7 @@ async fn list_objects(
     // Add files from contents
     for obj in resp.contents() {
         let key = obj.key().unwrap_or_default().to_string();
+        println!("[DEBUG S3] parsed file content key: {}", key);
         // Filter out the directory folder object itself if returned in contents
         if let Some(pfx) = &prefix {
             if key == *pfx {
@@ -199,18 +205,27 @@ async fn upload_to_cloud(
     )
     .await?;
 
-    let body = ByteStream::from_path(Path::new(&file_path))
+    let path = Path::new(&file_path);
+    let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    let file_size = metadata.len();
+
+    let body = ByteStream::from_path(path)
         .await
         .map_err(|e| e.to_string())?;
 
-    client
+    println!("[DEBUG S3] put_object bucket='{}', key='{}', file='{}', size={}", bucket, object_name, file_path, file_size);
+
+    let put_resp = client
         .put_object()
         .bucket(&bucket)
         .key(&object_name)
         .body(body)
+        .content_length(file_size as i64)
         .send()
         .await
         .map_err(|e| e.to_string())?;
+
+    println!("[DEBUG S3] put_object response: {:?}", put_resp);
 
     Ok(format!("Uploaded {} to {}/{}", file_path, bucket, object_name))
 }
