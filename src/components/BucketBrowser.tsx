@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   FolderOpen,
@@ -8,6 +8,12 @@ import {
   ChevronRight,
   Loader2,
   LayoutGrid,
+  Eye,
+  X,
+  ArrowLeft,
+  FileSpreadsheet,
+  FileText,
+  Image as ImageIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -20,6 +26,8 @@ interface BucketBrowserProps {
   accessKeyId?: string;
   secretAccessKey?: string;
   onStatus: (status: StatusType, message: string) => void;
+  onConnectStateChange?: (connected: boolean) => void;
+  disconnectTrigger?: number; // Used by parent to trigger disconnect
 }
 
 interface S3Object {
@@ -36,6 +44,26 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
+const isImageFile = (key: string) => {
+  const ext = key.split(".").pop()?.toLowerCase();
+  return ext ? ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(ext) : false;
+};
+
+const getFileIcon = (key: string, isFolder: boolean) => {
+  if (isFolder) return <FolderOpen className="h-5 w-5 text-amber-400 shrink-0" />;
+  const ext = key.split(".").pop()?.toLowerCase();
+  if (ext && ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)) {
+    return <ImageIcon className="h-5 w-5 text-emerald-400 shrink-0" />;
+  }
+  if (ext && ["pdf", "doc", "docx", "txt", "md"].includes(ext)) {
+    return <FileText className="h-5 w-5 text-blue-400 shrink-0" />;
+  }
+  if (ext && ["xls", "xlsx", "csv"].includes(ext)) {
+    return <FileSpreadsheet className="h-5 w-5 text-green-400 shrink-0" />;
+  }
+  return <File className="h-5 w-5 text-slate-400 shrink-0" />;
+};
+
 export function BucketBrowser({
   provider,
   region,
@@ -43,6 +71,8 @@ export function BucketBrowser({
   accessKeyId,
   secretAccessKey,
   onStatus,
+  onConnectStateChange,
+  disconnectTrigger = 0,
 }: BucketBrowserProps) {
   const [buckets, setBuckets] = useState<string[]>([]);
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
@@ -52,11 +82,33 @@ export function BucketBrowser({
   const [loadingObjects, setLoadingObjects] = useState(false);
   const [operatingOn, setOperatingOn] = useState<string | null>(null);
 
+  // Drag and drop states
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Preview states
+  const [previewObject, setPreviewObject] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
+  const disconnect = () => {
+    setBuckets([]);
+    setSelectedBucket(null);
+    setObjects([]);
+    setPrefix("");
+    if (onConnectStateChange) onConnectStateChange(false);
+  };
+
+  useEffect(() => {
+    if (disconnectTrigger > 0) {
+      disconnect();
+    }
+  }, [disconnectTrigger]);
+
   const connect = async () => {
     setConnecting(true);
     onStatus("loading", "Connecting and listing buckets…");
     try {
-      // If credentials were manually provided in the UI, write them to ~/.aws/credentials
+      // Save credentials first if inline ones were typed in the UI
       if (accessKeyId && secretAccessKey) {
         await invoke("save_credentials", {
           provider,
@@ -77,8 +129,10 @@ export function BucketBrowser({
       setObjects([]);
       setPrefix("");
       onStatus("success", `Connected — found ${result.length} bucket${result.length !== 1 ? "s" : ""}`);
+      if (onConnectStateChange) onConnectStateChange(true);
     } catch (e) {
       onStatus("error", `Connection failed: ${e}`);
+      if (onConnectStateChange) onConnectStateChange(false);
     } finally {
       setConnecting(false);
     }
@@ -172,139 +226,318 @@ export function BucketBrowser({
     }
   };
 
-  return (
-    <div className="space-y-4">
-      {/* Connect button */}
+  // Drag and drop event handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (selectedBucket) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (!selectedBucket) return;
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      onStatus("loading", `Processing dropped file(s)…`);
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        const file = e.dataTransfer.files[i];
+        const filePath = (file as any).path; // Tauri specific file path parameter
+        if (filePath) {
+          const fileName = filePath.split(/[\\/]/).pop() ?? "upload";
+          const objectKey = prefix + fileName;
+          try {
+            await invoke("upload_to_cloud", {
+              provider,
+              region,
+              bucket: selectedBucket,
+              objectName: objectKey,
+              filePath,
+              endpoint: endpoint ?? null,
+              accessKeyId: accessKeyId ?? null,
+              secretAccessKey: secretAccessKey ?? null,
+            });
+            onStatus("success", `${fileName} uploaded successfully`);
+          } catch (err) {
+            onStatus("error", `Upload failed for ${fileName}: ${err}`);
+          }
+        }
+      }
+      await loadObjects(selectedBucket, prefix);
+    }
+  };
+
+  // Preview loader
+  const handlePreview = async (obj: S3Object) => {
+    setPreviewObject(obj.key);
+    setLoadingPreview(true);
+    setPreviewData(null);
+    try {
+      const base64Data = await invoke<string>("get_object_preview", {
+        provider,
+        region,
+        bucket: selectedBucket,
+        objectName: obj.key,
+        endpoint: endpoint ?? null,
+        accessKeyId: accessKeyId ?? null,
+        secretAccessKey: secretAccessKey ?? null,
+      });
+      const ext = obj.key.split(".").pop()?.toLowerCase();
+      const mime = ext === "svg" ? "image/svg+xml" : `image/${ext || "png"}`;
+      setPreviewData(`data:${mime};base64,${base64Data}`);
+    } catch (e) {
+      onStatus("error", `Failed to load preview: ${e}`);
+      setPreviewObject(null);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  // Back navigation for folder structure
+  const navigateBack = () => {
+    if (!prefix) return;
+    const parts = prefix.split("/").filter(Boolean);
+    parts.pop();
+    const newPrefix = parts.length > 0 ? parts.join("/") + "/" : "";
+    loadObjects(selectedBucket!, newPrefix);
+  };
+
+  // Renders connection block when NOT connected
+  if (buckets.length === 0) {
+    return (
       <Button
         id={`connect-${provider}`}
         onClick={connect}
         disabled={connecting || !region}
-        className="w-full"
+        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-lg shadow-indigo-600/20 py-6 transition-all duration-200"
         size="lg"
       >
         {connecting ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Loader2 className="h-5 w-5 animate-spin mr-2" />
         ) : (
-          <LayoutGrid className="h-4 w-4" />
+          <LayoutGrid className="h-5 w-5 mr-2" />
         )}
-        {connecting ? "Connecting…" : buckets.length > 0 ? "Reconnect" : "Connect & List Buckets"}
+        {connecting ? "Connecting to Cloud Account…" : "Connect & List Buckets"}
       </Button>
+    );
+  }
 
-      {/* Bucket list */}
-      {buckets.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs text-slate-400 uppercase tracking-wider font-medium">
-            Buckets ({buckets.length})
-          </p>
-          <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1">
-            {buckets.map((b) => (
-              <button
-                key={b}
-                onClick={() => selectBucket(b)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left transition-all duration-200 ${
-                  selectedBucket === b
-                    ? "bg-indigo-600/30 border border-indigo-500/50 text-indigo-300"
-                    : "bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 hover:border-white/20"
-                }`}
-              >
-                <FolderOpen className="h-4 w-4 shrink-0" />
-                <span className="truncate">{b}</span>
-              </button>
-            ))}
-          </div>
+  return (
+    <div className="flex bg-slate-900/60 border border-white/5 rounded-xl overflow-hidden h-[540px]">
+      {/* Sidebar: Bucket list */}
+      <div className="w-[200px] border-r border-white/5 bg-slate-950/40 p-4 flex flex-col gap-3">
+        <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
+          Buckets ({buckets.length})
+        </p>
+        <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+          {buckets.map((b) => (
+            <button
+              key={b}
+              onClick={() => selectBucket(b)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-left transition-all duration-150 ${
+                selectedBucket === b
+                  ? "bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 font-semibold"
+                  : "bg-transparent border border-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200"
+              }`}
+            >
+              <FolderOpen className={`h-4 w-4 shrink-0 ${selectedBucket === b ? "text-indigo-400" : "text-slate-500"}`} />
+              <span className="truncate">{b}</span>
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
-      {/* Object browser */}
-      {selectedBucket && (
-        <div className="space-y-2">
-          {/* Breadcrumb + actions */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1 text-xs text-slate-400 min-w-0">
-              <button
-                onClick={() => loadObjects(selectedBucket, "")}
-                className="hover:text-slate-200 transition-colors shrink-0"
+      {/* Main Area: Object explorer */}
+      <div
+        className="flex-1 flex flex-col min-w-0 relative"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {/* Drag over overlay dropzone */}
+        {isDragging && (
+          <div className="absolute inset-0 bg-indigo-950/80 backdrop-filter backdrop-blur-md z-30 flex flex-col items-center justify-center border-2 border-dashed border-indigo-500/50 m-2 rounded-xl transition-all duration-200">
+            <Upload className="h-12 w-12 text-indigo-400 animate-bounce mb-3" />
+            <p className="text-sm font-semibold text-indigo-200">Drop files here to upload</p>
+            <p className="text-xs text-indigo-500 mt-1">Uploading to: {prefix || "/"}</p>
+          </div>
+        )}
+
+        {selectedBucket ? (
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* Top Toolbar */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-slate-950/20 shrink-0">
+              <div className="flex items-center gap-1.5 text-xs text-slate-400 min-w-0">
+                {prefix && (
+                  <button
+                    onClick={navigateBack}
+                    className="flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium mr-2 shrink-0"
+                  >
+                    <ArrowLeft className="h-3 w-3" />
+                    Back
+                  </button>
+                )}
+                <span className="font-semibold text-slate-300 shrink-0">{selectedBucket}</span>
+                <ChevronRight className="h-3 w-3 text-slate-600 shrink-0" />
+                <span className="truncate text-slate-400">{prefix || "/"}</span>
+              </div>
+              <Button
+                id={`upload-${provider}`}
+                variant="outline"
+                size="sm"
+                onClick={handleUpload}
+                disabled={operatingOn !== null}
+                className="bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-300 border-indigo-500/20 shrink-0 text-xs px-3 h-8"
               >
-                {selectedBucket}
-              </button>
-              {prefix && (
-                <>
-                  <ChevronRight className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{prefix}</span>
-                </>
+                <Upload className="h-3.5 w-3.5 mr-1" />
+                Upload File
+              </Button>
+            </div>
+
+            {/* Object List */}
+            <div className="flex-1 overflow-y-auto p-4 min-h-0">
+              {loadingObjects ? (
+                <div className="flex flex-col items-center justify-center h-full py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
+                  <p className="text-xs text-slate-500 mt-2">Fetching object list…</p>
+                </div>
+              ) : objects.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full py-12 text-slate-500 text-sm">
+                  <FolderOpen className="h-10 w-10 mb-2 opacity-20" />
+                  <p className="font-medium text-slate-400">Drag files here to upload</p>
+                  <p className="text-xs text-slate-600 mt-1">Or click the Upload button to select files</p>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {objects.map((obj) => {
+                    const isFolder = obj.key.endsWith("/");
+                    const displayName = obj.key.replace(prefix, "").replace(/\/$/, "");
+                    return (
+                      <div
+                        key={obj.key}
+                        className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-white/3 border border-white/5 hover:bg-white/8 hover:border-white/10 group transition-all duration-150"
+                      >
+                        {getFileIcon(obj.key, isFolder)}
+                        <span className="text-xs text-slate-200 flex-1 truncate font-medium">{displayName}</span>
+                        {!isFolder && (
+                          <span className="text-[11px] text-slate-500 shrink-0 font-mono">
+                            {formatBytes(obj.size)}
+                          </span>
+                        )}
+                        <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity ml-2 shrink-0">
+                          {isImageFile(obj.key) && !isFolder && (
+                            <button
+                              onClick={() => handlePreview(obj)}
+                              className="text-slate-400 hover:text-indigo-400 p-1 rounded hover:bg-white/5 transition-all"
+                              title="Preview Image"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+                          )}
+                          {!isFolder && (
+                            <button
+                              onClick={() => handleDownload(obj)}
+                              disabled={operatingOn === obj.key}
+                              className="text-slate-400 hover:text-indigo-400 p-1 rounded hover:bg-white/5 transition-all disabled:opacity-30"
+                              title="Download File"
+                            >
+                              {operatingOn === obj.key ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4" />
+                              )}
+                            </button>
+                          )}
+                          {isFolder && (
+                            <button
+                              onClick={() => loadObjects(selectedBucket, obj.key)}
+                              className="text-slate-400 hover:text-indigo-400 p-1 rounded hover:bg-white/5 transition-all"
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
-            <Button
-              id={`upload-${provider}`}
-              variant="outline"
-              size="sm"
-              onClick={handleUpload}
-              disabled={operatingOn !== null}
-              className="shrink-0 ml-2"
-            >
-              <Upload className="h-3 w-3" />
-              Upload
-            </Button>
           </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center flex-1 text-slate-500 text-sm">
+            <FolderOpen className="h-12 w-12 mb-3 opacity-20 text-indigo-400" />
+            <p className="font-semibold text-slate-300">No bucket selected</p>
+            <p className="text-xs text-slate-600 mt-1">Please select a bucket from the sidebar to browse files.</p>
+          </div>
+        )}
+      </div>
 
-          {/* Object list */}
-          {loadingObjects ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-indigo-400" />
+      {/* Sleek Image Preview Modal */}
+      {previewObject && (
+        <div className="fixed inset-0 bg-black/80 backdrop-filter backdrop-blur-md z-50 flex items-center justify-center p-6">
+          <div className="bg-slate-900 border border-white/10 rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden shadow-2xl relative">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 shrink-0 bg-slate-950/20">
+              <span className="text-xs font-semibold text-slate-300 truncate max-w-md">
+                {previewObject.split("/").pop()}
+              </span>
+              <button
+                onClick={() => setPreviewObject(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-all"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
-          ) : objects.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-slate-500 text-sm">
-              <FolderOpen className="h-8 w-8 mb-2 opacity-30" />
-              <p>Empty bucket</p>
+
+            {/* Modal Body / Image View */}
+            <div className="flex-1 flex items-center justify-center p-6 bg-slate-950/40 overflow-hidden min-h-0">
+              {loadingPreview ? (
+                <div className="flex flex-col items-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
+                  <p className="text-xs text-slate-500 mt-2">Loading image preview…</p>
+                </div>
+              ) : previewData ? (
+                <img
+                  src={previewData}
+                  alt={previewObject}
+                  className="max-w-full max-h-[50vh] object-contain rounded-lg border border-white/5 bg-slate-900 shadow-lg"
+                />
+              ) : (
+                <p className="text-xs text-slate-500">Failed to load preview</p>
+              )}
             </div>
-          ) : (
-            <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
-              {objects.map((obj) => {
-                const isFolder = obj.key.endsWith("/");
-                const displayName = obj.key.replace(prefix, "").replace(/\/$/, "");
-                return (
-                  <div
-                    key={obj.key}
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/3 border border-white/5 hover:bg-white/8 group transition-all duration-150"
-                  >
-                    {isFolder ? (
-                      <FolderOpen className="h-4 w-4 text-yellow-400 shrink-0" />
-                    ) : (
-                      <File className="h-4 w-4 text-slate-400 shrink-0" />
-                    )}
-                    <span className="text-sm text-slate-200 flex-1 truncate">{displayName}</span>
-                    {!isFolder && (
-                      <span className="text-xs text-slate-500 shrink-0">
-                        {formatBytes(obj.size)}
-                      </span>
-                    )}
-                    {!isFolder && (
-                      <button
-                        onClick={() => handleDownload(obj)}
-                        disabled={operatingOn === obj.key}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 text-slate-400 hover:text-indigo-400 disabled:opacity-30"
-                        aria-label={`Download ${displayName}`}
-                      >
-                        {operatingOn === obj.key ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Download className="h-4 w-4" />
-                        )}
-                      </button>
-                    )}
-                    {isFolder && (
-                      <button
-                        onClick={() => loadObjects(selectedBucket, obj.key)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 text-slate-400 hover:text-indigo-400"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 border-t border-white/5 flex justify-end gap-3 bg-slate-950/20 shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPreviewObject(null)}
+                className="text-xs"
+              >
+                Close
+              </Button>
+              {!loadingPreview && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const obj = objects.find((o) => o.key === previewObject);
+                    if (obj) handleDownload(obj);
+                  }}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-xs"
+                >
+                  <Download className="h-4.5 w-4.5 mr-1" />
+                  Download File
+                </Button>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>

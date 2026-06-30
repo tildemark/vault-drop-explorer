@@ -16,12 +16,17 @@ import { StatusBar, type StatusType } from "@/components/StatusBar";
 import { LandingPage } from "@/components/LandingPage";
 import { AWS_REGIONS } from "@/lib/awsRegions";
 import { OCI_REGIONS } from "@/lib/ociRegions";
-import { Cloud, Lock, ChevronDown, ChevronUp, ArrowLeft } from "lucide-react";
+import { Cloud, Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function App() {
   const isTauri = typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
   const [showApp, setShowApp] = useState(isTauri);
+
+  // Connection visibility status
+  const [isConnected, setIsConnected] = useState(false);
+  const [disconnectTrigger, setDisconnectTrigger] = useState(0);
+  const [activeProvider, setActiveProvider] = useState<"aws" | "oci">("aws");
 
   // Credential presence states
   const [awsCredsExist, setAwsCredsExist] = useState(true);
@@ -64,7 +69,6 @@ export default function App() {
     setStatus(s);
     setStatusMsg(msg);
     if (s === "success") {
-      // Recheck credential file on successful connection in case keys were saved
       checkCredentials();
       setTimeout(() => setStatus("idle"), 5000);
     } else if (s === "error") {
@@ -96,6 +100,11 @@ export default function App() {
     }
   };
 
+  const triggerDisconnect = () => {
+    setDisconnectTrigger((prev) => prev + 1);
+    setIsConnected(false);
+  };
+
   const resolvedOciEndpoint = ociEndpoint.includes("{namespace}")
     ? undefined
     : ociEndpoint || undefined;
@@ -107,8 +116,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       {/* Header */}
-      <header className="flex items-center gap-3 px-6 py-4 border-b border-white/5">
-        {!isTauri && (
+      <header className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-slate-950/40">
+        {!isTauri && !isConnected && (
           <Button
             variant="ghost"
             size="sm"
@@ -126,205 +135,220 @@ export default function App() {
           <h1 className="text-sm font-semibold text-slate-100 leading-none">Vault Drop Explorer</h1>
           <p className="text-xs text-slate-500 mt-0.5">Secure cloud file manager</p>
         </div>
-        <div className="ml-auto flex items-center gap-1.5 text-xs text-slate-500">
-          <Lock className="h-3 w-3" />
-          <span>Local credentials only</span>
+
+        {isConnected && (
+          <div className="flex items-center gap-2 ml-6 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-slate-300 font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="uppercase">{activeProvider}</span>
+            <span className="text-slate-600">·</span>
+            <span>{activeProvider === "aws" ? awsRegion : ociRegion}</span>
+          </div>
+        )}
+
+        <div className="ml-auto flex items-center gap-4">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <Lock className="h-3 w-3" />
+            <span>Local credentials only</span>
+          </div>
+          {isConnected && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={triggerDisconnect}
+              className="bg-red-500/10 hover:bg-red-500/20 border-red-500/20 text-red-400 h-8 px-3 text-xs"
+            >
+              <LogOut className="h-3.5 w-3.5 mr-1" />
+              Disconnect
+            </Button>
+          )}
         </div>
       </header>
 
-      {/* Main */}
-      <main className="flex-1 p-6">
-        <Tabs defaultValue="aws" className="w-full max-w-2xl mx-auto">
-          <TabsList className="w-full mb-6">
-            <TabsTrigger value="aws" id="tab-aws" className="flex-1 gap-2">
-              <img
-                src="https://upload.wikimedia.org/wikipedia/commons/9/93/Amazon_Web_Services_Logo.svg"
-                alt="AWS"
-                className="h-3.5 w-auto opacity-80"
-                onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
+      {/* Main Area */}
+      <main className="flex-1 p-6 flex flex-col justify-center">
+        {isConnected ? (
+          <div className="w-full max-w-4xl mx-auto flex-1">
+            {activeProvider === "aws" ? (
+              <BucketBrowser
+                provider="aws"
+                region={awsRegion}
+                accessKeyId={awsAccessKey || undefined}
+                secretAccessKey={awsSecretKey || undefined}
+                onStatus={handleStatus}
+                onConnectStateChange={setIsConnected}
+                disconnectTrigger={disconnectTrigger}
               />
-              Amazon S3
-            </TabsTrigger>
-            <TabsTrigger value="oci" id="tab-oci" className="flex-1 gap-2">
-              <img
-                src="https://upload.wikimedia.org/wikipedia/commons/5/50/Oracle_logo.svg"
-                alt="OCI"
-                className="h-3.5 w-auto opacity-80"
-                onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
+            ) : (
+              <BucketBrowser
+                provider="oci"
+                region={ociRegion || "us-ashburn-1"}
+                endpoint={resolvedOciEndpoint}
+                accessKeyId={ociAccessKeyId || undefined}
+                secretAccessKey={ociSecretAccessKey || undefined}
+                onStatus={handleStatus}
+                onConnectStateChange={setIsConnected}
+                disconnectTrigger={disconnectTrigger}
               />
-              OCI Object Storage
-            </TabsTrigger>
-          </TabsList>
-
-          {/* ── AWS Tab ── */}
-          <TabsContent value="aws">
-            <Card>
-              <CardHeader>
-                <CardTitle>Amazon S3</CardTitle>
-                <CardDescription>
-                  {awsCredsExist
-                    ? "Using local profile [default] in ~/.aws/credentials"
-                    : "No local credentials found. Enter keys to configure and save them."}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                <div className="space-y-2">
-                  <Label htmlFor="aws-region">Region</Label>
-                  <Select value={awsRegion} onValueChange={setAwsRegion}>
-                    <SelectTrigger id="aws-region">
-                      <SelectValue placeholder="Select a region" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AWS_REGIONS.map((r) => (
-                        <SelectItem key={r.value} value={r.value}>
-                          {r.label}{" "}
-                          <span className="text-slate-500 text-xs ml-1">({r.value})</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Inline Credential Setup for first-run AWS */}
-                {!awsCredsExist && (
-                  <div className="space-y-3 p-4 bg-yellow-950/20 border border-yellow-500/20 rounded-lg">
-                    <p className="text-xs text-yellow-400">
-                      No AWS credentials found in <code>~/.aws/credentials</code>. Enter them below to connect and automatically save them locally.
-                    </p>
-                    <div className="space-y-2">
-                      <Label htmlFor="aws-key-id">AWS Access Key ID</Label>
-                      <Input
-                        id="aws-key-id"
-                        placeholder="AKIA..."
-                        value={awsAccessKey}
-                        onChange={(e) => setAwsAccessKey(e.target.value)}
-                        type="password"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="aws-secret">AWS Secret Access Key</Label>
-                      <Input
-                        id="aws-secret"
-                        placeholder="Secret Key"
-                        value={awsSecretKey}
-                        onChange={(e) => setAwsSecretKey(e.target.value)}
-                        type="password"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <BucketBrowser
-                  provider="aws"
-                  region={awsRegion}
-                  accessKeyId={awsAccessKey || undefined}
-                  secretAccessKey={awsSecretKey || undefined}
-                  onStatus={handleStatus}
-                />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ── OCI Tab ── */}
-          <TabsContent value="oci">
-            <Card>
-              <CardHeader>
-                <CardTitle>OCI Object Storage</CardTitle>
-                <CardDescription>
-                  {ociCredsExist
-                    ? "Using local profile [oci] in ~/.aws/credentials"
-                    : "No local credentials found. Enter keys to configure and save them."}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                {/* Region selector */}
-                <div className="space-y-2">
-                  <Label htmlFor="oci-region">Region</Label>
-                  <Select value={ociRegion} onValueChange={handleOciRegionChange}>
-                    <SelectTrigger id="oci-region">
-                      <SelectValue placeholder="Select an OCI region" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {OCI_REGIONS.map((r) => (
-                        <SelectItem key={r.value} value={r.value}>
-                          {r.label}{" "}
-                          <span className="text-slate-500 text-xs ml-1">({r.value})</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Namespace */}
-                <div className="space-y-2">
-                  <Label htmlFor="oci-namespace">Tenancy Namespace</Label>
-                  <Input
-                    id="oci-namespace"
-                    placeholder="e.g. axhz1oupce..."
-                    value={ociNamespace}
-                    onChange={(e) => handleOciNamespaceChange(e.target.value)}
+            )}
+          </div>
+        ) : (
+          <div className="w-full max-w-xl mx-auto">
+            <Tabs value={activeProvider} onValueChange={(val) => setActiveProvider(val as "aws" | "oci")} className="w-full">
+              <TabsList className="w-full mb-6">
+                <TabsTrigger value="aws" id="tab-aws" className="flex-1 gap-2">
+                  <img
+                    src="https://upload.wikimedia.org/wikipedia/commons/9/93/Amazon_Web_Services_Logo.svg"
+                    alt="AWS"
+                    className="h-3.5 w-auto opacity-80"
+                    onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
                   />
-                  <p className="text-xs text-slate-500">
-                    Find it in OCI Console → Tenancy Details → Object Storage Namespace
-                  </p>
-                </div>
-
-                {/* Endpoint (auto-filled, but editable) */}
-                <div className="space-y-2">
-                  <Label htmlFor="oci-endpoint">S3-Compatible Endpoint</Label>
-                  <Input
-                    id="oci-endpoint"
-                    placeholder="Auto-filled when you select a region"
-                    value={ociEndpoint}
-                    onChange={(e) => setOciEndpoint(e.target.value)}
+                  Amazon S3
+                </TabsTrigger>
+                <TabsTrigger value="oci" id="tab-oci" className="flex-1 gap-2">
+                  <img
+                    src="https://upload.wikimedia.org/wikipedia/commons/5/50/Oracle_logo.svg"
+                    alt="OCI"
+                    className="h-3.5 w-auto opacity-80"
+                    onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
                   />
-                </div>
+                  OCI Object Storage
+                </TabsTrigger>
+              </TabsList>
 
-                {/* Inline Credential Setup for first-run OCI or advanced manual configuration */}
-                {!ociCredsExist ? (
-                  <div className="space-y-3 p-4 bg-yellow-950/20 border border-yellow-500/20 rounded-lg">
-                    <p className="text-xs text-yellow-400">
-                      No OCI credentials found in <code>~/.aws/credentials</code> under the <code>[oci]</code> profile. Enter them below to connect and automatically save them locally.
-                    </p>
+              {/* ── AWS Tab ── */}
+              <TabsContent value="aws">
+                <Card className="bg-slate-900/40 border-white/5">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Amazon S3 Configuration</CardTitle>
+                    <CardDescription className="text-xs">
+                      {awsCredsExist
+                        ? "Using default profile in ~/.aws/credentials"
+                        : "No credentials profile found. Enter keys to configure and save them."}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
                     <div className="space-y-2">
-                      <Label htmlFor="oci-key-id">OCI Access Key ID</Label>
+                      <Label htmlFor="aws-region" className="text-xs">Region</Label>
+                      <Select value={awsRegion} onValueChange={setAwsRegion}>
+                        <SelectTrigger id="aws-region">
+                          <SelectValue placeholder="Select a region" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {AWS_REGIONS.map((r) => (
+                            <SelectItem key={r.value} value={r.value}>
+                              {r.label}{" "}
+                              <span className="text-slate-500 text-xs ml-1">({r.value})</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Inline Credential Setup for first-run AWS */}
+                    {!awsCredsExist && (
+                      <div className="space-y-3 p-4 bg-indigo-950/20 border border-indigo-500/20 rounded-lg">
+                        <p className="text-[11px] text-indigo-300">
+                          Configure new AWS credentials profile to save on this machine:
+                        </p>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="aws-key-id" className="text-[11px]">AWS Access Key ID</Label>
+                          <Input
+                            id="aws-key-id"
+                            placeholder="AKIA..."
+                            value={awsAccessKey}
+                            onChange={(e) => setAwsAccessKey(e.target.value)}
+                            type="password"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="aws-secret" className="text-[11px]">AWS Secret Access Key</Label>
+                          <Input
+                            id="aws-secret"
+                            placeholder="Secret Key"
+                            value={awsSecretKey}
+                            onChange={(e) => setAwsSecretKey(e.target.value)}
+                            type="password"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <BucketBrowser
+                      provider="aws"
+                      region={awsRegion}
+                      accessKeyId={awsAccessKey || undefined}
+                      secretAccessKey={awsSecretKey || undefined}
+                      onStatus={handleStatus}
+                      onConnectStateChange={setIsConnected}
+                      disconnectTrigger={disconnectTrigger}
+                    />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* ── OCI Tab ── */}
+              <TabsContent value="oci">
+                <Card className="bg-slate-900/40 border-white/5">
+                  <CardHeader>
+                    <CardTitle className="text-lg">OCI Configuration</CardTitle>
+                    <CardDescription className="text-xs">
+                      {ociCredsExist
+                        ? "Using [oci] profile in ~/.aws/credentials"
+                        : "No [oci] credentials found. Enter keys to configure and save them."}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    {/* Region selector */}
+                    <div className="space-y-2">
+                      <Label htmlFor="oci-region" className="text-xs">Region</Label>
+                      <Select value={ociRegion} onValueChange={handleOciRegionChange}>
+                        <SelectTrigger id="oci-region">
+                          <SelectValue placeholder="Select an OCI region" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {OCI_REGIONS.map((r) => (
+                            <SelectItem key={r.value} value={r.value}>
+                              {r.label}{" "}
+                              <span className="text-slate-500 text-xs ml-1">({r.value})</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Namespace */}
+                    <div className="space-y-2">
+                      <Label htmlFor="oci-namespace" className="text-xs">Tenancy Namespace</Label>
                       <Input
-                        id="oci-key-id"
-                        placeholder="OCI customer secret key ID"
-                        value={ociAccessKeyId}
-                        onChange={(e) => setOciAccessKeyId(e.target.value)}
-                        type="password"
+                        id="oci-namespace"
+                        placeholder="e.g. axhz1oupce..."
+                        value={ociNamespace}
+                        onChange={(e) => handleOciNamespaceChange(e.target.value)}
+                      />
+                      <p className="text-[10px] text-slate-500">
+                        Find it in OCI Console → Tenancy Details → Object Storage Namespace
+                      </p>
+                    </div>
+
+                    {/* Endpoint (auto-filled, but editable) */}
+                    <div className="space-y-2">
+                      <Label htmlFor="oci-endpoint" className="text-xs">S3-Compatible Endpoint</Label>
+                      <Input
+                        id="oci-endpoint"
+                        placeholder="Auto-filled when you select a region"
+                        value={ociEndpoint}
+                        onChange={(e) => setOciEndpoint(e.target.value)}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="oci-secret">OCI Secret Access Key</Label>
-                      <Input
-                        id="oci-secret"
-                        placeholder="OCI customer secret key"
-                        value={ociSecretAccessKey}
-                        onChange={(e) => setOciSecretAccessKey(e.target.value)}
-                        type="password"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <button
-                      id="oci-advanced-toggle"
-                      onClick={() => setShowOciAdvanced((v) => !v)}
-                      className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-                    >
-                      {showOciAdvanced ? (
-                        <ChevronUp className="h-3 w-3" />
-                      ) : (
-                        <ChevronDown className="h-3 w-3" />
-                      )}
-                      Inline credentials override (optional)
-                    </button>
-                    {showOciAdvanced && (
-                      <div className="mt-3 space-y-3 pl-3 border-l border-white/10">
-                        <div className="space-y-2">
-                          <Label htmlFor="oci-key-id">Access Key ID</Label>
+
+                    {/* Inline Credential Setup for OCI */}
+                    {!ociCredsExist ? (
+                      <div className="space-y-3 p-4 bg-indigo-950/20 border border-indigo-500/20 rounded-lg">
+                        <p className="text-[11px] text-indigo-300">
+                          Configure new OCI credentials profile to save on this machine:
+                        </p>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="oci-key-id" className="text-[11px]">OCI Access Key ID</Label>
                           <Input
                             id="oci-key-id"
                             placeholder="OCI customer secret key ID"
@@ -333,8 +357,8 @@ export default function App() {
                             type="password"
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="oci-secret">Secret Access Key</Label>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="oci-secret" className="text-[11px]">OCI Secret Access Key</Label>
                           <Input
                             id="oci-secret"
                             placeholder="OCI customer secret key"
@@ -344,22 +368,64 @@ export default function App() {
                           />
                         </div>
                       </div>
+                    ) : (
+                      <div>
+                        <button
+                          id="oci-advanced-toggle"
+                          type="button"
+                          onClick={() => setShowOciAdvanced((v) => !v)}
+                          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                        >
+                          {showOciAdvanced ? (
+                            <ChevronUp className="h-3 w-3" />
+                          ) : (
+                            <ChevronDown className="h-3 w-3" />
+                          )}
+                          Inline credentials override (optional)
+                        </button>
+                        {showOciAdvanced && (
+                          <div className="mt-3 space-y-3 pl-3 border-l border-white/10">
+                            <div className="space-y-2">
+                              <Label htmlFor="oci-key-id">Access Key ID</Label>
+                              <Input
+                                id="oci-key-id"
+                                placeholder="OCI customer secret key ID"
+                                value={ociAccessKeyId}
+                                onChange={(e) => setOciAccessKeyId(e.target.value)}
+                                type="password"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="oci-secret">Secret Access Key</Label>
+                              <Input
+                                id="oci-secret"
+                                placeholder="OCI customer secret key"
+                                value={ociSecretAccessKey}
+                                onChange={(e) => setOciSecretAccessKey(e.target.value)}
+                                type="password"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
-                  </div>
-                )}
 
-                <BucketBrowser
-                  provider="oci"
-                  region={ociRegion || "us-ashburn-1"}
-                  endpoint={resolvedOciEndpoint}
-                  accessKeyId={ociAccessKeyId || undefined}
-                  secretAccessKey={ociSecretAccessKey || undefined}
-                  onStatus={handleStatus}
-                />
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                    <BucketBrowser
+                      provider="oci"
+                      region={ociRegion || "us-ashburn-1"}
+                      endpoint={resolvedOciEndpoint}
+                      accessKeyId={ociAccessKeyId || undefined}
+                      secretAccessKey={ociSecretAccessKey || undefined}
+                      onStatus={handleStatus}
+                      onConnectStateChange={setIsConnected}
+                      disconnectTrigger={disconnectTrigger}
+                    />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </div>
+        )}
       </main>
 
       <StatusBar

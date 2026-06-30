@@ -3,6 +3,7 @@ use aws_credential_types::Credentials;
 use aws_sdk_s3::config::Builder as S3ConfigBuilder;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::Client;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tokio::fs;
@@ -38,28 +39,29 @@ async fn build_client(
     access_key_id: Option<&str>,
     secret_access_key: Option<&str>,
 ) -> Result<Client, String> {
-    let mut key_id = access_key_id.unwrap_or("").to_string();
-    let mut secret = secret_access_key.unwrap_or("").to_string();
+    let mut key_id = access_key_id.unwrap_or("").trim().to_string();
+    let mut secret = secret_access_key.unwrap_or("").trim().to_string();
+    let trimmed_region = region.trim().to_string();
 
     // If UI creds are empty and provider is OCI, fall back to environment variables (loaded from .env)
     if key_id.is_empty() && secret.is_empty() && provider == "oci" {
         if let (Ok(env_key), Ok(env_sec)) = (std::env::var("OCI_ACCESS_KEY_ID"), std::env::var("OCI_SECRET_ACCESS_KEY")) {
-            key_id = env_key;
-            secret = env_sec;
+            key_id = env_key.trim().to_string();
+            secret = env_sec.trim().to_string();
         }
     }
 
     let sdk_config = if !key_id.is_empty() && !secret.is_empty() {
         let creds = Credentials::new(key_id, secret, None, None, "vault-drop");
         aws_config::defaults(BehaviorVersion::latest())
-            .region(aws_sdk_s3::config::Region::new(region.to_string()))
+            .region(aws_sdk_s3::config::Region::new(trimmed_region))
             .credentials_provider(creds)
             .load()
             .await
     } else {
         let profile = if provider == "oci" { "oci" } else { "default" };
         aws_config::defaults(BehaviorVersion::latest())
-            .region(aws_sdk_s3::config::Region::new(region.to_string()))
+            .region(aws_sdk_s3::config::Region::new(trimmed_region))
             .profile_name(profile)
             .load()
             .await
@@ -69,9 +71,10 @@ async fn build_client(
 
     // Override endpoint for OCI (or any custom provider)
     if let Some(ep) = endpoint {
-        if !ep.is_empty() {
+        let trimmed_ep = ep.trim();
+        if !trimmed_ep.is_empty() {
             s3_config = s3_config
-                .endpoint_url(ep)
+                .endpoint_url(trimmed_ep)
                 .force_path_style(true); // OCI requires path-style
         }
     }
@@ -316,6 +319,43 @@ async fn save_credentials(
     Ok(format!("Credentials saved to profile [{}]", profile_name))
 }
 
+#[tauri::command]
+async fn get_object_preview(
+    provider: String,
+    region: String,
+    bucket: String,
+    object_name: String,
+    endpoint: Option<String>,
+    access_key_id: Option<String>,
+    secret_access_key: Option<String>,
+) -> Result<String, String> {
+    let client = build_client(
+        &provider,
+        &region,
+        endpoint.as_deref(),
+        access_key_id.as_deref(),
+        secret_access_key.as_deref(),
+    )
+    .await?;
+
+    let resp = client
+        .get_object()
+        .bucket(&bucket)
+        .key(&object_name)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let data = resp
+        .body
+        .collect()
+        .await
+        .map_err(|e| e.to_string())?
+        .into_bytes();
+
+    Ok(BASE64.encode(&data))
+}
+
 // ─── App entry ──────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -331,6 +371,7 @@ pub fn run() {
             download_from_cloud,
             check_credentials_exist,
             save_credentials,
+            get_object_preview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
