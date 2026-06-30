@@ -18,6 +18,19 @@ pub struct S3Object {
 
 // ─── Build S3 client ────────────────────────────────────────────────────────
 
+fn log_debug(msg: &str) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open("c:\\code\\vault-drop-explorer\\debug.log")
+    {
+        let _ = writeln!(file, "{}", msg);
+    }
+}
+
 fn load_env() {
     if let Ok(content) = std::fs::read_to_string(".env") {
         for line in content.lines() {
@@ -144,16 +157,16 @@ async fn list_objects(
 
     let resp = req.send().await.map_err(|e| e.to_string())?;
 
-    println!("[DEBUG S3] list_objects bucket='{}', prefix='{:?}'", bucket, prefix);
-    println!("[DEBUG S3] contents: {:?}", resp.contents());
-    println!("[DEBUG S3] common_prefixes: {:?}", resp.common_prefixes());
+    log_debug(&format!("[DEBUG S3] list_objects bucket='{}', prefix='{:?}'", bucket, prefix));
+    log_debug(&format!("[DEBUG S3] contents: {:?}", resp.contents()));
+    log_debug(&format!("[DEBUG S3] common_prefixes: {:?}", resp.common_prefixes()));
 
     let mut list = Vec::new();
 
     // Add folders from common_prefixes
     for prefix_obj in resp.common_prefixes() {
         if let Some(pfx) = prefix_obj.prefix() {
-            println!("[DEBUG S3] parsed folder prefix: {}", pfx);
+            log_debug(&format!("[DEBUG S3] parsed folder prefix: {}", pfx));
             list.push(S3Object {
                 key: pfx.to_string(),
                 size: 0,
@@ -165,7 +178,7 @@ async fn list_objects(
     // Add files from contents
     for obj in resp.contents() {
         let key = obj.key().unwrap_or_default().to_string();
-        println!("[DEBUG S3] parsed file content key: {}", key);
+        log_debug(&format!("[DEBUG S3] parsed file content key: {}", key));
         // Filter out the directory folder object itself if returned in contents
         if let Some(pfx) = &prefix {
             if key == *pfx {
@@ -213,7 +226,7 @@ async fn upload_to_cloud(
         .await
         .map_err(|e| e.to_string())?;
 
-    println!("[DEBUG S3] put_object bucket='{}', key='{}', file='{}', size={}", bucket, object_name, file_path, file_size);
+    log_debug(&format!("[DEBUG S3] put_object bucket='{}', key='{}', file='{}', size={}", bucket, object_name, file_path, file_size));
 
     let put_resp = client
         .put_object()
@@ -221,11 +234,13 @@ async fn upload_to_cloud(
         .key(&object_name)
         .body(body)
         .content_length(file_size as i64)
+        .customize()
+        .disable_payload_signing()
         .send()
         .await
         .map_err(|e| e.to_string())?;
 
-    println!("[DEBUG S3] put_object response: {:?}", put_resp);
+    log_debug(&format!("[DEBUG S3] put_object response: {:?}", put_resp));
 
     Ok(format!("Uploaded {} to {}/{}", file_path, bucket, object_name))
 }
