@@ -28,7 +28,7 @@ export function LandingPage({ onLaunchApp }: LandingPageProps) {
             </button>
             <a href="https://github.com/tildemark/vault-drop-explorer" target="_blank" rel="noopener">GitHub</a>
           </div>
-          <a href="https://github.com/tildemark/vault-drop-explorer/releases/latest/download/VaultDropExplorer_0.1.0_x64-setup.exe"
+          <a href="https://github.com/tildemark/vault-drop-explorer/releases/latest/download/Vault.Drop.Explorer_0.1.0_x64-setup.exe"
              className="nav-cta"
              id="nav-download">
             Download
@@ -62,7 +62,7 @@ export function LandingPage({ onLaunchApp }: LandingPageProps) {
           </p>
 
           <div className="hero-actions">
-            <a href="https://github.com/tildemark/vault-drop-explorer/releases/latest/download/VaultDropExplorer_0.1.0_x64-setup.exe"
+            <a href="https://github.com/tildemark/vault-drop-explorer/releases/latest/download/Vault.Drop.Explorer_0.1.0_x64-setup.exe"
                className="btn btn-primary"
                id="hero-download">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -223,7 +223,7 @@ aws_secret_access_key = &lt;OCI Customer Secret Key&gt;</pre>
             <div className="cta-orb"></div>
             <h2>Ready to drop some files?</h2>
             <p>Free, open-source, and built for developers who work with object storage every day.</p>
-            <a href="https://github.com/tildemark/vault-drop-explorer/releases/latest/download/VaultDropExplorer_0.1.0_x64-setup.exe"
+            <a href="https://github.com/tildemark/vault-drop-explorer/releases/latest/download/Vault.Drop.Explorer_0.1.0_x64-setup.exe"
                className="btn btn-primary btn-large"
                id="cta-download">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

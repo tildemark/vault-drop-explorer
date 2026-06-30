@@ -19,7 +19,7 @@ No browser, no typing. Select your region, click Connect — your buckets appear
 
 ## Download
 
-👉 [**Download for Windows (.exe)**](https://github.com/tildemark/vault-drop-explorer/releases/latest/download/VaultDropExplorer_0.1.0_x64-setup.exe)
+👉 [**Download for Windows (.exe)**](https://github.com/tildemark/vault-drop-explorer/releases/latest/download/Vault.Drop.Explorer_0.1.0_x64-setup.exe)
 
 Or visit the [Releases page](https://github.com/tildemark/vault-drop-explorer/releases) for all platforms.
 
