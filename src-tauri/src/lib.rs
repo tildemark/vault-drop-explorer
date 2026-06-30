@@ -239,7 +239,7 @@ async fn upload_to_cloud(
         .send()
         .await
         .map_err(|e| {
-            let err_msg = format!("[DEBUG S3] put_object error: {}", e);
+            let err_msg = format!("[DEBUG S3] put_object error: {:?}", e);
             log_debug(&err_msg);
             e.to_string()
         })?;
