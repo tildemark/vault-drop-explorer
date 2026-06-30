@@ -4,6 +4,10 @@ services:
   vault-drop-explorer:
     build: .
     container_name: vault-drop-explorer-web
-    ports:
-      - "8080:80"
+    networks:
+      - net
     restart: unless-stopped
+
+networks:
+  net:
+    external: true
