@@ -135,7 +135,7 @@ async fn list_objects(
     )
     .await?;
 
-    let mut req = client.list_objects_v2().bucket(&bucket);
+    let mut req = client.list_objects_v2().bucket(&bucket).delimiter("/");
     if let Some(pfx) = &prefix {
         if !pfx.is_empty() {
             req = req.prefix(pfx);
@@ -144,20 +144,39 @@ async fn list_objects(
 
     let resp = req.send().await.map_err(|e| e.to_string())?;
 
-    let objects = resp
-        .contents()
-        .iter()
-        .map(|obj| S3Object {
-            key: obj.key().unwrap_or_default().to_string(),
+    let mut list = Vec::new();
+
+    // Add folders from common_prefixes
+    for prefix_obj in resp.common_prefixes() {
+        if let Some(pfx) = prefix_obj.prefix() {
+            list.push(S3Object {
+                key: pfx.to_string(),
+                size: 0,
+                last_modified: String::new(),
+            });
+        }
+    }
+
+    // Add files from contents
+    for obj in resp.contents() {
+        let key = obj.key().unwrap_or_default().to_string();
+        // Filter out the directory folder object itself if returned in contents
+        if let Some(pfx) = &prefix {
+            if key == *pfx {
+                continue;
+            }
+        }
+        list.push(S3Object {
+            key,
             size: obj.size().unwrap_or(0),
             last_modified: obj
                 .last_modified()
                 .map(|t| t.to_string())
                 .unwrap_or_default(),
-        })
-        .collect();
+        });
+    }
 
-    Ok(objects)
+    Ok(list)
 }
 
 #[tauri::command]
@@ -389,6 +408,11 @@ async fn create_bucket(
     Ok(format!("Bucket '{}' created successfully", bucket))
 }
 
+#[tauri::command]
+fn get_env_var(name: String) -> Result<String, String> {
+    std::env::var(&name).map_err(|_| format!("Env var {} not found", name))
+}
+
 // ─── App entry ──────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -406,6 +430,7 @@ pub fn run() {
             save_credentials,
             get_object_preview,
             create_bucket,
+            get_env_var,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

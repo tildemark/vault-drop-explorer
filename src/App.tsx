@@ -39,7 +39,7 @@ export default function App() {
   const [awsSecretKey, setAwsSecretKey] = useState("");
 
   // OCI state
-  const [ociRegion, setOciRegion] = useState("");
+  const [ociRegion, setOciRegion] = useState("us-phoenix-1");
   const [ociNamespace, setOciNamespace] = useState("");
   const [ociEndpoint, setOciEndpoint] = useState("");
   const [showOciAdvanced, setShowOciAdvanced] = useState(false);
@@ -65,16 +65,51 @@ export default function App() {
     const savedAwsRegion = localStorage.getItem("aws_region");
     if (savedAwsRegion) setAwsRegion(savedAwsRegion);
 
-    const savedOciRegion = localStorage.getItem("oci_region");
-    if (savedOciRegion) setOciRegion(savedOciRegion);
+    const savedOciRegion = localStorage.getItem("oci_region") || "us-phoenix-1";
+    setOciRegion(savedOciRegion);
 
     const savedOciNamespace = localStorage.getItem("oci_namespace");
     if (savedOciNamespace) {
       setOciNamespace(savedOciNamespace);
-      const region = OCI_REGIONS.find((r) => r.value === (localStorage.getItem("oci_region") || ""));
+      const region = OCI_REGIONS.find((r) => r.value === savedOciRegion);
       if (region) {
         setOciEndpoint(region.endpoint.replace("{namespace}", savedOciNamespace));
       }
+    } else if (isTauri) {
+      // Attempt to load namespace from .env file process variables
+      invoke<string>("get_env_var", { name: "OCI_TENANCY" })
+        .then((val) => {
+          if (val) {
+            setOciNamespace(val);
+            const region = OCI_REGIONS.find((r) => r.value === savedOciRegion);
+            if (region) {
+              setOciEndpoint(region.endpoint.replace("{namespace}", val));
+            }
+          }
+        })
+        .catch(() => {
+          invoke<string>("get_env_var", { name: "OCI_NAMESPACE" })
+            .then((val) => {
+              if (val) {
+                setOciNamespace(val);
+                const region = OCI_REGIONS.find((r) => r.value === savedOciRegion);
+                if (region) {
+                  setOciEndpoint(region.endpoint.replace("{namespace}", val));
+                }
+              }
+            })
+            .catch(console.error);
+        });
+    }
+
+    if (isTauri) {
+      // Attempt to load keys from .env process variables
+      invoke<string>("get_env_var", { name: "OCI_ACCESS_KEY_ID" })
+        .then(setOciAccessKeyId)
+        .catch(console.error);
+      invoke<string>("get_env_var", { name: "OCI_SECRET_ACCESS_KEY" })
+        .then(setOciSecretAccessKey)
+        .catch(console.error);
     }
 
     const savedProvider = localStorage.getItem("active_provider") as "aws" | "oci" | null;

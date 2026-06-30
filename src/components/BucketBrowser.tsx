@@ -264,7 +264,69 @@ export function BucketBrowser({
     }
   };
 
-  // Drag and drop event handlers
+  // Tauri Native Window Drag and Drop Listener
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    
+    async function setupDragDrop() {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const appWindow = getCurrentWindow();
+        const unsubscribe = await appWindow.onDragDropEvent(async (event) => {
+          if (!selectedBucket) return;
+          
+          if (event.payload.type === "enter" || event.payload.type === "over") {
+            setIsDragging(true);
+          } else if (event.payload.type === "leave") {
+            setIsDragging(false);
+          } else if (event.payload.type === "drop") {
+            setIsDragging(false);
+            const paths = event.payload.paths;
+            if (paths && paths.length > 0) {
+              onStatus("loading", `Uploading ${paths.length} file(s)…`);
+              for (const filePath of paths) {
+                const fileName = filePath.split(/[\\/]/).pop() ?? "upload";
+                const objectKey = prefix + fileName;
+                try {
+                  await invoke("upload_to_cloud", {
+                    provider,
+                    region,
+                    bucket: selectedBucket,
+                    objectName: objectKey,
+                    filePath,
+                    endpoint: endpoint ?? null,
+                    accessKeyId: accessKeyId ?? null,
+                    secretAccessKey: secretAccessKey ?? null,
+                  });
+                } catch (err) {
+                  onStatus("error", `Upload failed for ${fileName}: ${err}`);
+                }
+              }
+              onStatus("success", `Uploaded files successfully!`);
+              await loadObjects(selectedBucket, prefix);
+            }
+          }
+        });
+        unlisten = unsubscribe;
+      } catch (e) {
+        console.error("Failed to setup Tauri drag-drop listener:", e);
+      }
+    }
+
+    setupDragDrop();
+
+    // Prevent default browser drag/drop behaviors globally to avoid page navigation
+    const preventDefault = (e: DragEvent) => e.preventDefault();
+    window.addEventListener("dragover", preventDefault, false);
+    window.addEventListener("drop", preventDefault, false);
+
+    return () => {
+      if (unlisten) unlisten();
+      window.removeEventListener("dragover", preventDefault, false);
+      window.removeEventListener("drop", preventDefault, false);
+    };
+  }, [selectedBucket, prefix, provider, region, endpoint, accessKeyId, secretAccessKey]);
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     if (selectedBucket) {
@@ -276,38 +338,9 @@ export function BucketBrowser({
     setIsDragging(false);
   };
 
-  const handleDrop = async (e: React.DragEvent) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (!selectedBucket) return;
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      onStatus("loading", `Processing dropped file(s)…`);
-      for (let i = 0; i < e.dataTransfer.files.length; i++) {
-        const file = e.dataTransfer.files[i];
-        const filePath = (file as any).path; // Tauri specific file path parameter
-        if (filePath) {
-          const fileName = filePath.split(/[\\/]/).pop() ?? "upload";
-          const objectKey = prefix + fileName;
-          try {
-            await invoke("upload_to_cloud", {
-              provider,
-              region,
-              bucket: selectedBucket,
-              objectName: objectKey,
-              filePath,
-              endpoint: endpoint ?? null,
-              accessKeyId: accessKeyId ?? null,
-              secretAccessKey: secretAccessKey ?? null,
-            });
-            onStatus("success", `${fileName} uploaded successfully`);
-          } catch (err) {
-            onStatus("error", `Upload failed for ${fileName}: ${err}`);
-          }
-        }
-      }
-      await loadObjects(selectedBucket, prefix);
-    }
   };
 
   // Preview loader
@@ -506,7 +539,12 @@ export function BucketBrowser({
                       return (
                         <div
                           key={obj.key}
-                          className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-white/3 border border-white/5 hover:bg-white/8 hover:border-white/10 group transition-all duration-150"
+                          onClick={() => {
+                            if (isFolder) {
+                              loadObjects(selectedBucket, obj.key);
+                            }
+                          }}
+                          className={`flex items-center gap-3 px-4 py-2.5 rounded-lg bg-white/3 border border-white/5 hover:bg-white/8 hover:border-white/10 group transition-all duration-150 ${isFolder ? 'cursor-pointer' : ''}`}
                         >
                           {getFileIcon(obj.key, isFolder)}
                           <span className="text-xs text-slate-200 flex-1 truncate font-medium">{displayName}</span>

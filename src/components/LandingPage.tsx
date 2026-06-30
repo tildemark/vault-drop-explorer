@@ -186,6 +186,15 @@ export function LandingPage({ onLaunchApp }: LandingPageProps) {
               <div className="step-body">
                 <h3>Configure credentials once</h3>
                 <p>Add your AWS or OCI keys to <code>~/.aws/credentials</code>. The app reads them automatically — no UI setup needed.</p>
+                <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', fontSize: '12px' }}>
+                  <a href="https://docs.aws.amazon.com/powershell/latest/userguide/pstools-appendix-sign-up.html" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 transition-colors underline" style={{ color: '#818cf8', textDecoration: 'underline' }}>
+                    How to setup AWS Account &amp; Keys
+                  </a>
+                  <span style={{ color: '#475569' }}>|</span>
+                  <a href="https://docs.oracle.com/en-us/iaas/Content/Identity/Tasks/managingcredentials.htm#working_with_customer_secret_keys" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 transition-colors underline" style={{ color: '#818cf8', textDecoration: 'underline' }}>
+                    How to setup OCI Account &amp; Keys
+                  </a>
+                </div>
                 <pre className="code-block"><span className="code-comment"># ~/.aws/credentials</span>
 <span className="code-section">[default]</span>
 aws_access_key_id = AKIA...
