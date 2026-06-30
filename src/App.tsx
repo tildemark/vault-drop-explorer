@@ -16,7 +16,7 @@ import { StatusBar, type StatusType } from "@/components/StatusBar";
 import { LandingPage } from "@/components/LandingPage";
 import { AWS_REGIONS } from "@/lib/awsRegions";
 import { OCI_REGIONS } from "@/lib/ociRegions";
-import { Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut, LayoutGrid, Loader2, User } from "lucide-react";
+import { Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut, LayoutGrid, Loader2, User, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function App() {
@@ -160,11 +160,25 @@ export default function App() {
         });
     }
 
-    if (isTauri) {
+    const savedAwsAccessKey = localStorage.getItem("aws_access_key");
+    if (savedAwsAccessKey) setAwsAccessKey(savedAwsAccessKey);
+    const savedAwsSecretKey = localStorage.getItem("aws_secret_key");
+    if (savedAwsSecretKey) setAwsSecretKey(savedAwsSecretKey);
+
+    const savedOciAccessKeyId = localStorage.getItem("oci_access_key_id");
+    if (savedOciAccessKeyId) {
+      setOciAccessKeyId(savedOciAccessKeyId);
+    } else if (isTauri) {
       // Attempt to load keys from .env process variables
       invoke<string>("get_env_var", { name: "OCI_ACCESS_KEY_ID" })
         .then(setOciAccessKeyId)
         .catch(console.error);
+    }
+
+    const savedOciSecretAccessKey = localStorage.getItem("oci_secret_access_key");
+    if (savedOciSecretAccessKey) {
+      setOciSecretAccessKey(savedOciSecretAccessKey);
+    } else if (isTauri) {
       invoke<string>("get_env_var", { name: "OCI_SECRET_ACCESS_KEY" })
         .then(setOciSecretAccessKey)
         .catch(console.error);
@@ -196,6 +210,16 @@ export default function App() {
         localStorage.setItem("aws_region", awsRegion);
         localStorage.setItem("oci_region", ociRegion);
         localStorage.setItem("oci_namespace", ociNamespace);
+        localStorage.setItem("aws_access_key", awsAccessKey);
+        localStorage.setItem("aws_secret_key", awsSecretKey);
+        localStorage.setItem("oci_access_key_id", ociAccessKeyId);
+        localStorage.setItem("oci_secret_access_key", ociSecretAccessKey);
+      } else {
+        localStorage.setItem("auto_connect", "false");
+        localStorage.removeItem("aws_access_key");
+        localStorage.removeItem("aws_secret_key");
+        localStorage.removeItem("oci_access_key_id");
+        localStorage.removeItem("oci_secret_access_key");
       }
       setTimeout(() => setStatus("idle"), 5000);
     } else if (s === "error") {
@@ -292,6 +316,15 @@ export default function App() {
             title="Dev: Alfredo Sanchez, Jr (https://sanchez.ph)"
           >
             <User className="h-4 w-4" />
+          </a>
+          <a
+            href="https://vaultdrop.sanchez.ph"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-slate-400 hover:text-indigo-400 cursor-pointer"
+            title="Launch Web Version (https://vaultdrop.sanchez.ph)"
+          >
+            <Globe className="h-4 w-4" />
           </a>
           <div className="w-2"></div>
           {isConnected && (
