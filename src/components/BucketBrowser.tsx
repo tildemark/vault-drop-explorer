@@ -182,7 +182,7 @@ export function BucketBrowser({
     await loadObjects(bucket, "");
   };
 
-  const loadObjects = async (bucket: string, pfx: string) => {
+  const loadObjects = async (bucket: string, pfx: string, expectedObjectName?: string, attempt = 1) => {
     setLoadingObjects(true);
     try {
       const result = await invoke<S3Object[]>("list_objects", {
@@ -194,6 +194,18 @@ export function BucketBrowser({
         accessKeyId: accessKeyId ?? null,
         secretAccessKey: secretAccessKey ?? null,
       });
+
+      // Eventually consistent S3 API retry check
+      if (expectedObjectName) {
+        const found = result.some((obj) => obj.key === expectedObjectName);
+        if (!found && attempt < 4) {
+          setTimeout(() => {
+            loadObjects(bucket, pfx, expectedObjectName, attempt + 1);
+          }, 800);
+          return;
+        }
+      }
+
       setObjects(result);
       setPrefix(pfx);
     } catch (e) {
@@ -228,7 +240,7 @@ export function BucketBrowser({
       });
       onStatus("success", `${fileName} uploaded successfully`);
       await new Promise((resolve) => setTimeout(resolve, 600));
-      await loadObjects(selectedBucket, prefix);
+      await loadObjects(selectedBucket, prefix, objectKey);
     } catch (e) {
       onStatus("error", `Upload failed: ${e}`);
     } finally {
@@ -285,9 +297,11 @@ export function BucketBrowser({
             const paths = event.payload.paths;
             if (paths && paths.length > 0) {
               onStatus("loading", `Uploading ${paths.length} file(s)…`);
+              let lastObjectKey = "";
               for (const filePath of paths) {
                 const fileName = filePath.split(/[\\/]/).pop() ?? "upload";
                 const objectKey = prefix + fileName;
+                lastObjectKey = objectKey;
                 try {
                   await invoke("upload_to_cloud", {
                     provider,
@@ -305,7 +319,7 @@ export function BucketBrowser({
               }
               onStatus("success", `Uploaded files successfully!`);
               await new Promise((resolve) => setTimeout(resolve, 600));
-              await loadObjects(selectedBucket, prefix);
+              await loadObjects(selectedBucket, prefix, lastObjectKey || undefined);
             }
           }
         });
