@@ -356,6 +356,39 @@ async fn get_object_preview(
     Ok(BASE64.encode(&data))
 }
 
+#[tauri::command]
+async fn create_bucket(
+    provider: String,
+    region: String,
+    bucket: String,
+    endpoint: Option<String>,
+    access_key_id: Option<String>,
+    secret_access_key: Option<String>,
+) -> Result<String, String> {
+    let client = build_client(
+        &provider,
+        &region,
+        endpoint.as_deref(),
+        access_key_id.as_deref(),
+        secret_access_key.as_deref(),
+    )
+    .await?;
+
+    let mut builder = client.create_bucket().bucket(&bucket);
+
+    if provider == "aws" && region != "us-east-1" {
+        let constraint = aws_sdk_s3::types::BucketLocationConstraint::from(region.as_str());
+        let config = aws_sdk_s3::types::CreateBucketConfiguration::builder()
+            .location_constraint(constraint)
+            .build();
+        builder = builder.create_bucket_configuration(config);
+    }
+
+    builder.send().await.map_err(|e| e.to_string())?;
+
+    Ok(format!("Bucket '{}' created successfully", bucket))
+}
+
 // ─── App entry ──────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -372,6 +405,7 @@ pub fn run() {
             check_credentials_exist,
             save_credentials,
             get_object_preview,
+            create_bucket,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

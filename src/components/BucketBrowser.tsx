@@ -14,6 +14,7 @@ import {
   FileSpreadsheet,
   FileText,
   Image as ImageIcon,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -82,6 +83,11 @@ export function BucketBrowser({
   const [loadingObjects, setLoadingObjects] = useState(false);
   const [operatingOn, setOperatingOn] = useState<string | null>(null);
 
+  // Bucket creation states
+  const [creatingBucket, setCreatingBucket] = useState(false);
+  const [newBucketName, setNewBucketName] = useState("");
+  const [isSubmittingBucket, setIsSubmittingBucket] = useState(false);
+
   // Drag and drop states
   const [isDragging, setIsDragging] = useState(false);
 
@@ -96,6 +102,38 @@ export function BucketBrowser({
     setObjects([]);
     setPrefix("");
     if (onConnectStateChange) onConnectStateChange(false);
+  };
+
+  const handleCreateBucket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBucketName.trim()) return;
+    setIsSubmittingBucket(true);
+    onStatus("loading", `Creating bucket '${newBucketName}'…`);
+    try {
+      await invoke("create_bucket", {
+        provider,
+        region,
+        bucket: newBucketName.trim(),
+        endpoint: endpoint ?? null,
+        accessKeyId: accessKeyId ?? null,
+        secretAccessKey: secretAccessKey ?? null,
+      });
+      onStatus("success", `Bucket '${newBucketName}' created successfully!`);
+      const result = await invoke<string[]>("list_buckets", {
+        provider,
+        region,
+        endpoint: endpoint ?? null,
+        accessKeyId: accessKeyId ?? null,
+        secretAccessKey: secretAccessKey ?? null,
+      });
+      setBuckets(result);
+      setNewBucketName("");
+      setCreatingBucket(false);
+    } catch (err) {
+      onStatus("error", `Failed to create bucket: ${err}`);
+    } finally {
+      setIsSubmittingBucket(false);
+    }
   };
 
   useEffect(() => {
@@ -331,9 +369,50 @@ export function BucketBrowser({
     <div className="flex bg-slate-900/60 border border-white/5 rounded-xl overflow-hidden flex-1 min-h-0 w-full">
       {/* Sidebar: Bucket list */}
       <div className="w-[200px] border-r border-white/5 bg-slate-950/40 p-4 flex flex-col gap-3">
-        <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
-          Buckets ({buckets.length})
-        </p>
+        <div className="flex items-center justify-between shrink-0">
+          <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
+            Buckets ({buckets.length})
+          </p>
+          <button
+            id="btn-create-bucket"
+            onClick={() => setCreatingBucket((v) => !v)}
+            className="text-slate-400 hover:text-white p-0.5 rounded transition-all hover:bg-white/5"
+            title="Create Bucket"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {creatingBucket && (
+          <form onSubmit={handleCreateBucket} className="space-y-1.5 shrink-0 bg-white/3 border border-white/5 p-2 rounded-lg">
+            <input
+              type="text"
+              placeholder="Bucket name..."
+              value={newBucketName}
+              onChange={(e) => setNewBucketName(e.target.value)}
+              disabled={isSubmittingBucket}
+              className="w-full bg-slate-900 border border-white/10 rounded px-2 py-1 text-[11px] text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              autoFocus
+            />
+            <div className="flex gap-1 justify-end">
+              <button
+                type="button"
+                onClick={() => setCreatingBucket(false)}
+                className="text-[9px] text-slate-400 hover:text-white px-1.5 py-0.5 rounded"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmittingBucket}
+                className="text-[9px] bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded disabled:opacity-50"
+              >
+                Create
+              </button>
+            </div>
+          </form>
+        )}
+
         <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
           {buckets.map((b) => (
             <button
