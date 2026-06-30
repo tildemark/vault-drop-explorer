@@ -446,6 +446,36 @@ async fn create_bucket(
 }
 
 #[tauri::command]
+async fn delete_object(
+    provider: String,
+    region: String,
+    bucket: String,
+    object_name: String,
+    endpoint: Option<String>,
+    access_key_id: Option<String>,
+    secret_access_key: Option<String>,
+) -> Result<String, String> {
+    let client = build_client(
+        &provider,
+        &region,
+        endpoint.as_deref(),
+        access_key_id.as_deref(),
+        secret_access_key.as_deref(),
+    )
+    .await?;
+
+    client
+        .delete_object()
+        .bucket(&bucket)
+        .key(&object_name)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(format!("Deleted {} from {}", object_name, bucket))
+}
+
+#[tauri::command]
 fn get_env_var(name: String) -> Result<String, String> {
     std::env::var(&name).map_err(|_| format!("Env var {} not found", name))
 }
@@ -468,6 +498,7 @@ pub fn run() {
             get_object_preview,
             create_bucket,
             get_env_var,
+            delete_object,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -16,7 +16,7 @@ import { StatusBar, type StatusType } from "@/components/StatusBar";
 import { LandingPage } from "@/components/LandingPage";
 import { AWS_REGIONS } from "@/lib/awsRegions";
 import { OCI_REGIONS } from "@/lib/ociRegions";
-import { Cloud, Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut } from "lucide-react";
+import { Cloud, Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut, LayoutGrid, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function App() {
@@ -25,7 +25,6 @@ export default function App() {
 
   // Connection visibility status
   const [isConnected, setIsConnected] = useState(false);
-  const [disconnectTrigger, setDisconnectTrigger] = useState(0);
   const [activeProvider, setActiveProvider] = useState<"aws" | "oci">("aws");
   const [rememberConnection, setRememberConnection] = useState(true);
 
@@ -46,6 +45,9 @@ export default function App() {
   const [ociAccessKeyId, setOciAccessKeyId] = useState("");
   const [ociSecretAccessKey, setOciSecretAccessKey] = useState("");
 
+  const [connecting, setConnecting] = useState(false);
+  const [buckets, setBuckets] = useState<string[]>([]);
+
   // Check for credentials file profile existence
   const checkCredentials = () => {
     if (isTauri) {
@@ -55,6 +57,62 @@ export default function App() {
       invoke<boolean>("check_credentials_exist", { provider: "oci" })
         .then(setOciCredsExist)
         .catch(console.error);
+    }
+  };
+
+  const handleConnect = async (providerOverride?: "aws" | "oci") => {
+    setConnecting(true);
+    const provider = providerOverride || activeProvider;
+    
+    // Read current form values
+    const savedAwsRegion = localStorage.getItem("aws_region") || "us-east-1";
+    const savedOciRegion = localStorage.getItem("oci_region") || "us-phoenix-1";
+    const savedOciNamespace = localStorage.getItem("oci_namespace") || "";
+    
+    const region = provider === "aws" 
+      ? (awsRegion || savedAwsRegion)
+      : (ociRegion || savedOciRegion);
+      
+    const namespace = provider === "oci" ? (ociNamespace || savedOciNamespace) : "";
+    
+    let endpoint = undefined;
+    if (provider === "oci" && namespace) {
+      const activeOciRegion = ociRegion || savedOciRegion;
+      const ociReg = OCI_REGIONS.find((r) => r.value === activeOciRegion);
+      if (ociReg) {
+        endpoint = ociReg.endpoint.replace("{namespace}", namespace);
+      }
+    }
+
+    const accessKeyId = provider === "aws" ? awsAccessKey : ociAccessKeyId;
+    const secretAccessKey = provider === "aws" ? awsSecretKey : ociSecretAccessKey;
+
+    handleStatus("loading", "Connecting and listing buckets…");
+    try {
+      // Save credentials first if inline ones were typed in the UI
+      if (isTauri && accessKeyId && secretAccessKey) {
+        await invoke("save_credentials", {
+          provider,
+          accessKeyId,
+          secretAccessKey,
+        });
+      }
+
+      const result = await invoke<string[]>("list_buckets", {
+        provider,
+        region,
+        endpoint: endpoint ?? null,
+        accessKeyId: accessKeyId || null,
+        secretAccessKey: secretAccessKey || null,
+      });
+
+      setBuckets(result);
+      handleStatus("success", `Connected — found ${result.length} bucket${result.length !== 1 ? "s" : ""}`);
+      setIsConnected(true);
+    } catch (e) {
+      handleStatus("error", `Connection failed: ${e}`);
+    } finally {
+      setConnecting(false);
     }
   };
 
@@ -117,7 +175,9 @@ export default function App() {
 
     const autoConnect = localStorage.getItem("auto_connect") === "true";
     if (autoConnect && savedProvider) {
-      setIsConnected(true);
+      setTimeout(() => {
+        handleConnect(savedProvider);
+      }, 50);
     }
   }, [showApp]);
 
@@ -174,7 +234,6 @@ export default function App() {
 
   const triggerDisconnect = () => {
     localStorage.setItem("auto_connect", "false");
-    setDisconnectTrigger((prev) => prev + 1);
     setIsConnected(false);
   };
 
@@ -241,28 +300,15 @@ export default function App() {
       <main className="flex-1 p-6 flex flex-col min-h-0">
         {isConnected ? (
           <div className="w-full max-w-4xl mx-auto flex-1 flex flex-col min-h-0">
-            {activeProvider === "aws" ? (
-              <BucketBrowser
-                provider="aws"
-                region={awsRegion}
-                accessKeyId={awsAccessKey || undefined}
-                secretAccessKey={awsSecretKey || undefined}
-                onStatus={handleStatus}
-                onConnectStateChange={setIsConnected}
-                disconnectTrigger={disconnectTrigger}
-              />
-            ) : (
-              <BucketBrowser
-                provider="oci"
-                region={ociRegion || "us-ashburn-1"}
-                endpoint={resolvedOciEndpoint}
-                accessKeyId={ociAccessKeyId || undefined}
-                secretAccessKey={ociSecretAccessKey || undefined}
-                onStatus={handleStatus}
-                onConnectStateChange={setIsConnected}
-                disconnectTrigger={disconnectTrigger}
-              />
-            )}
+            <BucketBrowser
+              provider={activeProvider}
+              region={activeProvider === "aws" ? awsRegion : (ociRegion || "us-phoenix-1")}
+              endpoint={activeProvider === "aws" ? undefined : resolvedOciEndpoint}
+              accessKeyId={activeProvider === "aws" ? (awsAccessKey || undefined) : (ociAccessKeyId || undefined)}
+              secretAccessKey={activeProvider === "aws" ? (awsSecretKey || undefined) : (ociSecretAccessKey || undefined)}
+              initialBuckets={buckets}
+              onStatus={handleStatus}
+            />
           </div>
         ) : (
           <div className="w-full max-w-xl mx-auto">
@@ -360,15 +406,20 @@ export default function App() {
                       </Label>
                     </div>
 
-                    <BucketBrowser
-                      provider="aws"
-                      region={awsRegion}
-                      accessKeyId={awsAccessKey || undefined}
-                      secretAccessKey={awsSecretKey || undefined}
-                      onStatus={handleStatus}
-                      onConnectStateChange={setIsConnected}
-                      disconnectTrigger={disconnectTrigger}
-                    />
+                    <Button
+                      id="connect-aws"
+                      onClick={() => handleConnect("aws")}
+                      disabled={connecting || !awsRegion}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-lg shadow-indigo-600/20 py-6 transition-all duration-200 mt-2"
+                      size="lg"
+                    >
+                      {connecting ? (
+                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                      ) : (
+                        <LayoutGrid className="h-5 w-5 mr-2" />
+                      )}
+                      {connecting ? "Connecting to S3 Account…" : "Connect & List Buckets"}
+                    </Button>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -511,16 +562,20 @@ export default function App() {
                       </Label>
                     </div>
 
-                    <BucketBrowser
-                      provider="oci"
-                      region={ociRegion || "us-ashburn-1"}
-                      endpoint={resolvedOciEndpoint}
-                      accessKeyId={ociAccessKeyId || undefined}
-                      secretAccessKey={ociSecretAccessKey || undefined}
-                      onStatus={handleStatus}
-                      onConnectStateChange={setIsConnected}
-                      disconnectTrigger={disconnectTrigger}
-                    />
+                    <Button
+                      id="connect-oci"
+                      onClick={() => handleConnect("oci")}
+                      disabled={connecting || !ociRegion}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-lg shadow-indigo-600/20 py-6 transition-all duration-200 mt-2"
+                      size="lg"
+                    >
+                      {connecting ? (
+                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                      ) : (
+                        <LayoutGrid className="h-5 w-5 mr-2" />
+                      )}
+                      {connecting ? "Connecting to OCI Account…" : "Connect & List Buckets"}
+                    </Button>
                   </CardContent>
                 </Card>
               </TabsContent>

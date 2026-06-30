@@ -7,7 +7,6 @@ import {
   Download,
   ChevronRight,
   Loader2,
-  LayoutGrid,
   Eye,
   X,
   ArrowLeft,
@@ -15,9 +14,10 @@ import {
   FileText,
   Image as ImageIcon,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog, ask } from "@tauri-apps/plugin-dialog";
 import type { StatusType } from "@/components/StatusBar";
 
 interface BucketBrowserProps {
@@ -26,9 +26,8 @@ interface BucketBrowserProps {
   endpoint?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  initialBuckets: string[];
   onStatus: (status: StatusType, message: string) => void;
-  onConnectStateChange?: (connected: boolean) => void;
-  disconnectTrigger?: number; // Used by parent to trigger disconnect
 }
 
 interface S3Object {
@@ -71,15 +70,13 @@ export function BucketBrowser({
   endpoint,
   accessKeyId,
   secretAccessKey,
+  initialBuckets,
   onStatus,
-  onConnectStateChange,
-  disconnectTrigger = 0,
 }: BucketBrowserProps) {
-  const [buckets, setBuckets] = useState<string[]>([]);
+  const [buckets, setBuckets] = useState<string[]>(initialBuckets);
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
   const [objects, setObjects] = useState<S3Object[]>([]);
   const [prefix, setPrefix] = useState<string>("");
-  const [connecting, setConnecting] = useState(false);
   const [loadingObjects, setLoadingObjects] = useState(false);
   const [operatingOn, setOperatingOn] = useState<string | null>(null);
 
@@ -96,13 +93,9 @@ export function BucketBrowser({
   const [previewData, setPreviewData] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
-  const disconnect = () => {
-    setBuckets([]);
-    setSelectedBucket(null);
-    setObjects([]);
-    setPrefix("");
-    if (onConnectStateChange) onConnectStateChange(false);
-  };
+  useEffect(() => {
+    setBuckets(initialBuckets);
+  }, [initialBuckets]);
 
   const handleCreateBucket = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -133,46 +126,6 @@ export function BucketBrowser({
       onStatus("error", `Failed to create bucket: ${err}`);
     } finally {
       setIsSubmittingBucket(false);
-    }
-  };
-
-  useEffect(() => {
-    if (disconnectTrigger > 0) {
-      disconnect();
-    }
-  }, [disconnectTrigger]);
-
-  const connect = async () => {
-    setConnecting(true);
-    onStatus("loading", "Connecting and listing buckets…");
-    try {
-      // Save credentials first if inline ones were typed in the UI
-      if (accessKeyId && secretAccessKey) {
-        await invoke("save_credentials", {
-          provider,
-          accessKeyId,
-          secretAccessKey,
-        });
-      }
-
-      const result = await invoke<string[]>("list_buckets", {
-        provider,
-        region,
-        endpoint: endpoint ?? null,
-        accessKeyId: accessKeyId ?? null,
-        secretAccessKey: secretAccessKey ?? null,
-      });
-      setBuckets(result);
-      setSelectedBucket(null);
-      setObjects([]);
-      setPrefix("");
-      onStatus("success", `Connected — found ${result.length} bucket${result.length !== 1 ? "s" : ""}`);
-      if (onConnectStateChange) onConnectStateChange(true);
-    } catch (e) {
-      onStatus("error", `Connection failed: ${e}`);
-      if (onConnectStateChange) onConnectStateChange(false);
-    } finally {
-      setConnecting(false);
     }
   };
 
@@ -272,6 +225,37 @@ export function BucketBrowser({
       onStatus("success", `${fileName} saved successfully`);
     } catch (e) {
       onStatus("error", `Download failed: ${e}`);
+    } finally {
+      setOperatingOn(null);
+    }
+  };
+
+  const handleDelete = async (obj: S3Object) => {
+    if (!selectedBucket) return;
+
+    const confirm = await ask("Are you sure you want to delete this file?", {
+      title: "Confirm Deletion",
+      kind: "warning",
+    });
+    if (!confirm) return;
+
+    setOperatingOn(obj.key);
+    onStatus("loading", `Deleting ${obj.key.split("/").pop() ?? obj.key}…`);
+    try {
+      await invoke("delete_object", {
+        provider,
+        region,
+        bucket: selectedBucket,
+        objectName: obj.key,
+        endpoint: endpoint ?? null,
+        accessKeyId: accessKeyId ?? null,
+        secretAccessKey: secretAccessKey ?? null,
+      });
+      onStatus("success", `Deleted file successfully`);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      await loadObjects(selectedBucket, prefix);
+    } catch (e) {
+      onStatus("error", `Delete failed: ${e}`);
     } finally {
       setOperatingOn(null);
     }
@@ -393,26 +377,6 @@ export function BucketBrowser({
     const newPrefix = parts.length > 0 ? parts.join("/") + "/" : "";
     loadObjects(selectedBucket!, newPrefix);
   };
-
-  // Renders connection block when NOT connected
-  if (buckets.length === 0) {
-    return (
-      <Button
-        id={`connect-${provider}`}
-        onClick={connect}
-        disabled={connecting || !region}
-        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-lg shadow-indigo-600/20 py-6 transition-all duration-200"
-        size="lg"
-      >
-        {connecting ? (
-          <Loader2 className="h-5 w-5 animate-spin mr-2" />
-        ) : (
-          <LayoutGrid className="h-5 w-5 mr-2" />
-        )}
-        {connecting ? "Connecting to Cloud Account…" : "Connect & List Buckets"}
-      </Button>
-    );
-  }
 
   return (
     <div className="flex bg-slate-900/60 border border-white/5 rounded-xl overflow-hidden flex-1 min-h-0 w-full">
@@ -593,6 +557,21 @@ export function BucketBrowser({
                                 )}
                               </button>
                             )}
+                            <button
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 handleDelete(obj);
+                               }}
+                               disabled={operatingOn === obj.key}
+                               className="text-slate-400 hover:text-rose-400 p-1 rounded hover:bg-white/5 transition-all disabled:opacity-30"
+                               title="Delete Object"
+                             >
+                               {operatingOn === obj.key ? (
+                                 <Loader2 className="h-4 w-4 animate-spin" />
+                               ) : (
+                                 <Trash2 className="h-4 w-4" />
+                               )}
+                             </button>
                             {isFolder && (
                               <button
                                 onClick={() => loadObjects(selectedBucket, obj.key)}
