@@ -32,6 +32,9 @@ fn log_debug(msg: &str) {
 }
 
 fn load_env() {
+    std::env::set_var("AWS_REQUEST_CHECKSUM_CALCULATION", "WHEN_REQUIRED");
+    std::env::set_var("AWS_RESPONSE_CHECKSUM_CALCULATION", "WHEN_REQUIRED");
+
     if let Ok(content) = std::fs::read_to_string(".env") {
         for line in content.lines() {
             let line = line.trim();
