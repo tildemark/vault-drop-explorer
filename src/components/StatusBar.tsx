@@ -14,11 +14,12 @@ export function StatusBar({ status, message, onDismiss }: StatusBarProps) {
 
   return (
     <div
+      style={{ left: "50%", transform: "translateX(-50%)" }}
       className={cn(
-        "fixed bottom-6 left-1/2 -translate-x-1/2 z-50",
+        "fixed bottom-6 z-50",
         "flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl",
         "border transition-all duration-300 animate-in slide-in-from-bottom-4",
-        "max-w-md w-full",
+        "max-w-md w-[calc(100%-32px)] sm:w-full",
         status === "loading" && "bg-indigo-600 border-indigo-500 text-white shadow-[0_4px_25px_rgba(99,102,241,0.3)]",
         status === "success" && "bg-emerald-600 border-emerald-500 text-white shadow-[0_4px_25px_rgba(16,185,129,0.3)]",
         status === "error" && "bg-rose-600 border-rose-500 text-white shadow-[0_4px_25px_rgba(244,63,94,0.3)]"
