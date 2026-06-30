@@ -16,7 +16,7 @@ import { StatusBar, type StatusType } from "@/components/StatusBar";
 import { LandingPage } from "@/components/LandingPage";
 import { AWS_REGIONS } from "@/lib/awsRegions";
 import { OCI_REGIONS } from "@/lib/ociRegions";
-import { Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut, LayoutGrid, Loader2 } from "lucide-react";
+import { Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut, LayoutGrid, Loader2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function App() {
@@ -277,11 +277,23 @@ export default function App() {
           </div>
         )}
 
-        <div className="ml-auto flex items-center gap-4">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500">
-            <Lock className="h-3 w-3" />
-            <span>Local credentials only</span>
+        <div className="ml-auto flex items-center gap-2">
+          <div
+            className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-slate-400 hover:text-emerald-400 cursor-help"
+            title="Local Credentials Only: Your access keys are processed and stored entirely on this computer. They are never sent to external servers."
+          >
+            <Lock className="h-4 w-4" />
           </div>
+          <a
+            href="https://sanchez.ph"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-slate-400 hover:text-indigo-400 cursor-pointer"
+            title="Dev: Alfredo Sanchez, Jr (https://sanchez.ph)"
+          >
+            <User className="h-4 w-4" />
+          </a>
+          <div className="w-2"></div>
           {isConnected && (
             <Button
               variant="outline"
