@@ -1,6 +1,6 @@
 [package]
 name = "vault-drop-explorer"
-version = "0.1.0"
+version = "1.0.0"
 description = "Vault Drop Explorer — secure cloud file manager for AWS S3 and OCI Object Storage"
 authors = ["tildemark"]
 edition = "2021"

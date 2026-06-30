@@ -16,7 +16,7 @@ import { StatusBar, type StatusType } from "@/components/StatusBar";
 import { LandingPage } from "@/components/LandingPage";
 import { AWS_REGIONS } from "@/lib/awsRegions";
 import { OCI_REGIONS } from "@/lib/ociRegions";
-import { Cloud, Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut, LayoutGrid, Loader2 } from "lucide-react";
+import { Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut, LayoutGrid, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function App() {
@@ -260,8 +260,8 @@ export default function App() {
             Landing Page
           </Button>
         )}
-        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/30">
-          <Cloud className="h-4 w-4 text-indigo-400" />
+        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 overflow-hidden p-1 shrink-0">
+          <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
         </div>
         <div>
           <h1 className="text-sm font-semibold text-slate-100 leading-none">Vault Drop Explorer</h1>
