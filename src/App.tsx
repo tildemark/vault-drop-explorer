@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -22,8 +23,14 @@ export default function App() {
   const isTauri = typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
   const [showApp, setShowApp] = useState(isTauri);
 
+  // Credential presence states
+  const [awsCredsExist, setAwsCredsExist] = useState(true);
+  const [ociCredsExist, setOciCredsExist] = useState(true);
+
   // AWS state
   const [awsRegion, setAwsRegion] = useState("us-east-1");
+  const [awsAccessKey, setAwsAccessKey] = useState("");
+  const [awsSecretKey, setAwsSecretKey] = useState("");
 
   // OCI state
   const [ociRegion, setOciRegion] = useState("");
@@ -37,10 +44,30 @@ export default function App() {
   const [status, setStatus] = useState<StatusType>("idle");
   const [statusMsg, setStatusMsg] = useState("");
 
+  // Check for credentials file profile existence
+  const checkCredentials = () => {
+    if (isTauri) {
+      invoke<boolean>("check_credentials_exist", { provider: "aws" })
+        .then(setAwsCredsExist)
+        .catch(console.error);
+      invoke<boolean>("check_credentials_exist", { provider: "oci" })
+        .then(setOciCredsExist)
+        .catch(console.error);
+    }
+  };
+
+  useEffect(() => {
+    checkCredentials();
+  }, [showApp]);
+
   const handleStatus = (s: StatusType, msg: string) => {
     setStatus(s);
     setStatusMsg(msg);
-    if (s === "success" || s === "error") {
+    if (s === "success") {
+      // Recheck credential file on successful connection in case keys were saved
+      checkCredentials();
+      setTimeout(() => setStatus("idle"), 5000);
+    } else if (s === "error") {
       setTimeout(() => setStatus("idle"), 5000);
     }
   };
@@ -135,8 +162,9 @@ export default function App() {
               <CardHeader>
                 <CardTitle>Amazon S3</CardTitle>
                 <CardDescription>
-                  Reads credentials from <code className="text-indigo-400">~/.aws/credentials</code>{" "}
-                  (default profile)
+                  {awsCredsExist
+                    ? "Using local profile [default] in ~/.aws/credentials"
+                    : "No local credentials found. Enter keys to configure and save them."}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -157,9 +185,40 @@ export default function App() {
                   </Select>
                 </div>
 
+                {/* Inline Credential Setup for first-run AWS */}
+                {!awsCredsExist && (
+                  <div className="space-y-3 p-4 bg-yellow-950/20 border border-yellow-500/20 rounded-lg">
+                    <p className="text-xs text-yellow-400">
+                      No AWS credentials found in <code>~/.aws/credentials</code>. Enter them below to connect and automatically save them locally.
+                    </p>
+                    <div className="space-y-2">
+                      <Label htmlFor="aws-key-id">AWS Access Key ID</Label>
+                      <Input
+                        id="aws-key-id"
+                        placeholder="AKIA..."
+                        value={awsAccessKey}
+                        onChange={(e) => setAwsAccessKey(e.target.value)}
+                        type="password"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="aws-secret">AWS Secret Access Key</Label>
+                      <Input
+                        id="aws-secret"
+                        placeholder="Secret Key"
+                        value={awsSecretKey}
+                        onChange={(e) => setAwsSecretKey(e.target.value)}
+                        type="password"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <BucketBrowser
                   provider="aws"
                   region={awsRegion}
+                  accessKeyId={awsAccessKey || undefined}
+                  secretAccessKey={awsSecretKey || undefined}
                   onStatus={handleStatus}
                 />
               </CardContent>
@@ -172,7 +231,9 @@ export default function App() {
               <CardHeader>
                 <CardTitle>OCI Object Storage</CardTitle>
                 <CardDescription>
-                  S3-compatible API — select your region to auto-fill the endpoint
+                  {ociCredsExist
+                    ? "Using local profile [oci] in ~/.aws/credentials"
+                    : "No local credentials found. Enter keys to configure and save them."}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -219,49 +280,73 @@ export default function App() {
                   />
                 </div>
 
-                {/* Advanced credentials toggle */}
-                <div>
-                  <button
-                    id="oci-advanced-toggle"
-                    onClick={() => setShowOciAdvanced((v) => !v)}
-                    className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-                  >
-                    {showOciAdvanced ? (
-                      <ChevronUp className="h-3 w-3" />
-                    ) : (
-                      <ChevronDown className="h-3 w-3" />
-                    )}
-                    Inline credentials (optional)
-                  </button>
-                  {showOciAdvanced && (
-                    <div className="mt-3 space-y-3 pl-3 border-l border-white/10">
-                      <p className="text-xs text-slate-500">
-                        Leave blank to use the <code className="text-indigo-400">[oci]</code>{" "}
-                        profile from <code className="text-indigo-400">~/.aws/credentials</code>
-                      </p>
-                      <div className="space-y-2">
-                        <Label htmlFor="oci-key-id">Access Key ID</Label>
-                        <Input
-                          id="oci-key-id"
-                          placeholder="OCI customer secret key ID"
-                          value={ociAccessKeyId}
-                          onChange={(e) => setOciAccessKeyId(e.target.value)}
-                          type="password"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="oci-secret">Secret Access Key</Label>
-                        <Input
-                          id="oci-secret"
-                          placeholder="OCI customer secret key"
-                          value={ociSecretAccessKey}
-                          onChange={(e) => setOciSecretAccessKey(e.target.value)}
-                          type="password"
-                        />
-                      </div>
+                {/* Inline Credential Setup for first-run OCI or advanced manual configuration */}
+                {!ociCredsExist ? (
+                  <div className="space-y-3 p-4 bg-yellow-950/20 border border-yellow-500/20 rounded-lg">
+                    <p className="text-xs text-yellow-400">
+                      No OCI credentials found in <code>~/.aws/credentials</code> under the <code>[oci]</code> profile. Enter them below to connect and automatically save them locally.
+                    </p>
+                    <div className="space-y-2">
+                      <Label htmlFor="oci-key-id">OCI Access Key ID</Label>
+                      <Input
+                        id="oci-key-id"
+                        placeholder="OCI customer secret key ID"
+                        value={ociAccessKeyId}
+                        onChange={(e) => setOciAccessKeyId(e.target.value)}
+                        type="password"
+                      />
                     </div>
-                  )}
-                </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="oci-secret">OCI Secret Access Key</Label>
+                      <Input
+                        id="oci-secret"
+                        placeholder="OCI customer secret key"
+                        value={ociSecretAccessKey}
+                        onChange={(e) => setOciSecretAccessKey(e.target.value)}
+                        type="password"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <button
+                      id="oci-advanced-toggle"
+                      onClick={() => setShowOciAdvanced((v) => !v)}
+                      className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                      {showOciAdvanced ? (
+                        <ChevronUp className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      )}
+                      Inline credentials override (optional)
+                    </button>
+                    {showOciAdvanced && (
+                      <div className="mt-3 space-y-3 pl-3 border-l border-white/10">
+                        <div className="space-y-2">
+                          <Label htmlFor="oci-key-id">Access Key ID</Label>
+                          <Input
+                            id="oci-key-id"
+                            placeholder="OCI customer secret key ID"
+                            value={ociAccessKeyId}
+                            onChange={(e) => setOciAccessKeyId(e.target.value)}
+                            type="password"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="oci-secret">Secret Access Key</Label>
+                          <Input
+                            id="oci-secret"
+                            placeholder="OCI customer secret key"
+                            value={ociSecretAccessKey}
+                            onChange={(e) => setOciSecretAccessKey(e.target.value)}
+                            type="password"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <BucketBrowser
                   provider="oci"

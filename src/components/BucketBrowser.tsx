@@ -56,6 +56,15 @@ export function BucketBrowser({
     setConnecting(true);
     onStatus("loading", "Connecting and listing buckets…");
     try {
+      // If credentials were manually provided in the UI, write them to ~/.aws/credentials
+      if (accessKeyId && secretAccessKey) {
+        await invoke("save_credentials", {
+          provider,
+          accessKeyId,
+          secretAccessKey,
+        });
+      }
+
       const result = await invoke<string[]>("list_buckets", {
         provider,
         region,
