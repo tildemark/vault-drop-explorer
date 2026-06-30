@@ -27,6 +27,7 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [disconnectTrigger, setDisconnectTrigger] = useState(0);
   const [activeProvider, setActiveProvider] = useState<"aws" | "oci">("aws");
+  const [rememberConnection, setRememberConnection] = useState(true);
 
   // Credential presence states
   const [awsCredsExist, setAwsCredsExist] = useState(true);
@@ -45,10 +46,6 @@ export default function App() {
   const [ociAccessKeyId, setOciAccessKeyId] = useState("");
   const [ociSecretAccessKey, setOciSecretAccessKey] = useState("");
 
-  // Status
-  const [status, setStatus] = useState<StatusType>("idle");
-  const [statusMsg, setStatusMsg] = useState("");
-
   // Check for credentials file profile existence
   const checkCredentials = () => {
     if (isTauri) {
@@ -63,15 +60,53 @@ export default function App() {
 
   useEffect(() => {
     checkCredentials();
+
+    // Load saved settings
+    const savedAwsRegion = localStorage.getItem("aws_region");
+    if (savedAwsRegion) setAwsRegion(savedAwsRegion);
+
+    const savedOciRegion = localStorage.getItem("oci_region");
+    if (savedOciRegion) setOciRegion(savedOciRegion);
+
+    const savedOciNamespace = localStorage.getItem("oci_namespace");
+    if (savedOciNamespace) {
+      setOciNamespace(savedOciNamespace);
+      const region = OCI_REGIONS.find((r) => r.value === (localStorage.getItem("oci_region") || ""));
+      if (region) {
+        setOciEndpoint(region.endpoint.replace("{namespace}", savedOciNamespace));
+      }
+    }
+
+    const savedProvider = localStorage.getItem("active_provider") as "aws" | "oci" | null;
+    if (savedProvider) setActiveProvider(savedProvider);
+
+    const autoConnect = localStorage.getItem("auto_connect") === "true";
+    if (autoConnect && savedProvider) {
+      setIsConnected(true);
+    }
   }, [showApp]);
+
+  // Status
+  const [status, setStatus] = useState<StatusType>("idle");
+  const [statusMsg, setStatusMsg] = useState("");
 
   const handleStatus = (s: StatusType, msg: string) => {
     setStatus(s);
     setStatusMsg(msg);
     if (s === "success") {
       checkCredentials();
+      if (rememberConnection) {
+        localStorage.setItem("auto_connect", "true");
+        localStorage.setItem("active_provider", activeProvider);
+        localStorage.setItem("aws_region", awsRegion);
+        localStorage.setItem("oci_region", ociRegion);
+        localStorage.setItem("oci_namespace", ociNamespace);
+      }
       setTimeout(() => setStatus("idle"), 5000);
     } else if (s === "error") {
+      // If autoconnect failed, return to settings
+      localStorage.setItem("auto_connect", "false");
+      setIsConnected(false);
       setTimeout(() => setStatus("idle"), 5000);
     }
   };
@@ -101,6 +136,7 @@ export default function App() {
   };
 
   const triggerDisconnect = () => {
+    localStorage.setItem("auto_connect", "false");
     setDisconnectTrigger((prev) => prev + 1);
     setIsConnected(false);
   };
@@ -244,7 +280,7 @@ export default function App() {
                       </Select>
                     </div>
 
-                    {/* Inline Credential Setup for first-run AWS */}
+                    {/* Inline Credential Setup for AWS */}
                     {!awsCredsExist && (
                       <div className="space-y-3 p-4 bg-indigo-950/20 border border-indigo-500/20 rounded-lg">
                         <p className="text-[11px] text-indigo-300">
@@ -272,6 +308,20 @@ export default function App() {
                         </div>
                       </div>
                     )}
+
+                    {/* Auto Connect Toggle Checkbox */}
+                    <div className="flex items-center gap-2 pt-2">
+                      <input
+                        type="checkbox"
+                        id="remember-aws"
+                        checked={rememberConnection}
+                        onChange={(e) => setRememberConnection(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900 cursor-pointer"
+                      />
+                      <Label htmlFor="remember-aws" className="text-xs text-slate-400 cursor-pointer">
+                        Remember this connection and auto-connect next time
+                      </Label>
+                    </div>
 
                     <BucketBrowser
                       provider="aws"
@@ -409,6 +459,20 @@ export default function App() {
                         )}
                       </div>
                     )}
+
+                    {/* Auto Connect Toggle Checkbox */}
+                    <div className="flex items-center gap-2 pt-2">
+                      <input
+                        type="checkbox"
+                        id="remember-oci"
+                        checked={rememberConnection}
+                        onChange={(e) => setRememberConnection(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900 cursor-pointer"
+                      />
+                      <Label htmlFor="remember-oci" className="text-xs text-slate-400 cursor-pointer">
+                        Remember this connection and auto-connect next time
+                      </Label>
+                    </div>
 
                     <BucketBrowser
                       provider="oci"
