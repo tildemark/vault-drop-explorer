@@ -139,9 +139,11 @@ export default function App() {
       }
       setTimeout(() => setStatus("idle"), 5000);
     } else if (s === "error") {
-      // If autoconnect failed, return to settings
-      localStorage.setItem("auto_connect", "false");
-      setIsConnected(false);
+      // Only disconnect on initial connection error. If already connected, preserve session.
+      if (!isConnected) {
+        localStorage.setItem("auto_connect", "false");
+        setIsConnected(false);
+      }
       setTimeout(() => setStatus("idle"), 5000);
     }
   };
