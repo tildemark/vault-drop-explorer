@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  vault-drop-explorer:
+    build: .
+    container_name: vault-drop-explorer-web
+    ports:
+      - "8080:80"
+    restart: unless-stopped
