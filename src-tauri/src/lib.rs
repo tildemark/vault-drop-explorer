@@ -238,7 +238,11 @@ async fn upload_to_cloud(
         .disable_payload_signing()
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let err_msg = format!("[DEBUG S3] put_object error: {}", e);
+            log_debug(&err_msg);
+            e.to_string()
+        })?;
 
     log_debug(&format!("[DEBUG S3] put_object response: {:?}", put_resp));
 
