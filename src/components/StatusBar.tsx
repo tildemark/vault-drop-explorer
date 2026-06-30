@@ -33,7 +33,7 @@ export function StatusBar({ status, message, onDismiss }: StatusBarProps) {
       {status === "error" && (
         <AlertCircle className="h-4.5 w-4.5 text-white shrink-0" />
       )}
-      <span className="text-xs sm:text-sm flex-1 break-all break-words font-semibold leading-none">{message}</span>
+      <span className="text-xs sm:text-sm flex-1 break-all break-words font-semibold leading-normal">{message}</span>
       {onDismiss && status !== "loading" && (
         <button
           onClick={onDismiss}

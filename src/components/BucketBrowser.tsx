@@ -227,6 +227,7 @@ export function BucketBrowser({
         secretAccessKey: secretAccessKey ?? null,
       });
       onStatus("success", `${fileName} uploaded successfully`);
+      await new Promise((resolve) => setTimeout(resolve, 600));
       await loadObjects(selectedBucket, prefix);
     } catch (e) {
       onStatus("error", `Upload failed: ${e}`);
@@ -303,6 +304,7 @@ export function BucketBrowser({
                 }
               }
               onStatus("success", `Uploaded files successfully!`);
+              await new Promise((resolve) => setTimeout(resolve, 600));
               await loadObjects(selectedBucket, prefix);
             }
           }
