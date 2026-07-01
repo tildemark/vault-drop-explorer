@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke as invoke, isTauri } from "@/lib/tauriShim";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -20,7 +20,7 @@ import { Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut, LayoutGrid, Loader2, U
 import { Button } from "@/components/ui/button";
 
 export default function App() {
-  const isTauri = typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
+  const localStorage = isTauri ? window.localStorage : window.sessionStorage;
   const [showApp, setShowApp] = useState(isTauri);
 
   // Connection visibility status

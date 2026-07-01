@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import {
   FolderOpen,
   File,
@@ -17,7 +16,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { open as openDialog, save as saveDialog, ask } from "@tauri-apps/plugin-dialog";
+import {
+  safeInvoke as invoke,
+  safeOpenDialog as openDialog,
+  safeSaveDialog as saveDialog,
+  safeAsk as ask,
+  isTauri
+} from "@/lib/tauriShim";
 import type { StatusType } from "@/components/StatusBar";
 
 interface BucketBrowserProps {
@@ -266,6 +271,7 @@ export function BucketBrowser({
     let unlisten: (() => void) | undefined;
     
     async function setupDragDrop() {
+      if (!isTauri) return;
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const appWindow = getCurrentWindow();
