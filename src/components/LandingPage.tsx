@@ -24,7 +24,7 @@ export function LandingPage({ onLaunchApp }: LandingPageProps) {
               onClick={onLaunchApp}
               className="text-slate-400 hover:text-slate-200 transition-colors font-medium text-sm bg-transparent border-none cursor-pointer"
             >
-              Launch Web App
+              Launch Web Demo
             </button>
             <a href="https://github.com/tildemark/vault-drop-explorer" target="_blank" rel="noopener">GitHub</a>
           </div>
@@ -75,8 +75,9 @@ export function LandingPage({ onLaunchApp }: LandingPageProps) {
               onClick={onLaunchApp}
               className="btn btn-ghost"
               id="hero-launch-app"
+              title="Runs a simulated version of the explorer in the browser"
             >
-              Launch Web App
+              Launch Web Demo (Simulated)
             </button>
           </div>
 

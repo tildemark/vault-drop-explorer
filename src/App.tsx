@@ -343,6 +343,17 @@ export default function App() {
 
       {/* Main Area */}
       <main className="flex-1 p-6 flex flex-col min-h-0">
+        {!isTauri && (
+          <div className={`w-full ${isConnected ? "max-w-4xl" : "max-w-xl"} mx-auto mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex flex-col gap-1 shadow-lg`}>
+            <span className="font-semibold text-amber-400 flex items-center gap-1.5">
+              ⚠️ Web Demo Mode Active
+            </span>
+            <span>
+              To protect your credentials, connection and file operations are simulated. Download the desktop app to access your real AWS & OCI buckets locally.
+            </span>
+          </div>
+        )}
+
         {isConnected ? (
           <div className="w-full max-w-4xl mx-auto flex-1 flex flex-col min-h-0">
             <BucketBrowser
