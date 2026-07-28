@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { safeInvoke as invoke, isTauri } from "@/lib/tauriShim";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -14,256 +13,219 @@ import {
 import { BucketBrowser } from "@/components/BucketBrowser";
 import { StatusBar, type StatusType } from "@/components/StatusBar";
 import { LandingPage } from "@/components/LandingPage";
+import { ProfileManager, saveStoredProfiles, loadStoredProfiles } from "@/components/ProfileManager";
+import { getPresetById } from "@/lib/presets";
+import { ProviderPresetId, ConnectionProfile } from "@/types/provider";
 import { AWS_REGIONS } from "@/lib/awsRegions";
 import { OCI_REGIONS } from "@/lib/ociRegions";
-import { Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut, LayoutGrid, Loader2, User, Globe } from "lucide-react";
+import { Lock, ChevronDown, ChevronUp, ArrowLeft, LogOut, LayoutGrid, Loader2, User, Globe, Server, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function App() {
-  const localStorage = isTauri ? window.localStorage : window.sessionStorage;
+  const localStorageRef = isTauri ? window.localStorage : window.sessionStorage;
   const [showApp, setShowApp] = useState(isTauri);
 
   // Connection visibility status
   const [isConnected, setIsConnected] = useState(false);
-  const [activeProvider, setActiveProvider] = useState<"aws" | "oci">("aws");
+  const [activePresetId, setActivePresetId] = useState<ProviderPresetId>("aws");
   const [rememberConnection, setRememberConnection] = useState(true);
 
-  // Credential presence states
-  const [awsCredsExist, setAwsCredsExist] = useState(true);
-  const [ociCredsExist, setOciCredsExist] = useState(true);
-
-  // AWS state
-  const [awsRegion, setAwsRegion] = useState("us-east-1");
-  const [awsAccessKey, setAwsAccessKey] = useState("");
-  const [awsSecretKey, setAwsSecretKey] = useState("");
-
-  // OCI state
-  const [ociRegion, setOciRegion] = useState("us-phoenix-1");
+  // Active Connection Config Form State
+  const [endpoint, setEndpoint] = useState("");
+  const [region, setRegion] = useState("us-east-1");
+  const [accessKeyId, setAccessKeyId] = useState("");
+  const [secretAccessKey, setSecretAccessKey] = useState("");
+  const [forcePathStyle, setForcePathStyle] = useState(false);
+  const [profileName, setProfileName] = useState("default");
   const [ociNamespace, setOciNamespace] = useState("");
-  const [ociEndpoint, setOciEndpoint] = useState("");
-  const [showOciAdvanced, setShowOciAdvanced] = useState(false);
-  const [ociAccessKeyId, setOciAccessKeyId] = useState("");
-  const [ociSecretAccessKey, setOciSecretAccessKey] = useState("");
 
+  // UI state
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [credsExistInAwsFile, setCredsExistInAwsFile] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [buckets, setBuckets] = useState<string[]>([]);
 
-  // Check for credentials file profile existence
-  const checkCredentials = () => {
-    if (isTauri) {
-      invoke<boolean>("check_credentials_exist", { provider: "aws" })
-        .then(setAwsCredsExist)
-        .catch(console.error);
-      invoke<boolean>("check_credentials_exist", { provider: "oci" })
-        .then(setOciCredsExist)
-        .catch(console.error);
-    }
-  };
-
-  const handleConnect = async (providerOverride?: "aws" | "oci") => {
-    setConnecting(true);
-    const provider = providerOverride || activeProvider;
-    
-    // Read current form values
-    const savedAwsRegion = localStorage.getItem("aws_region") || "us-east-1";
-    const savedOciRegion = localStorage.getItem("oci_region") || "us-phoenix-1";
-    const savedOciNamespace = localStorage.getItem("oci_namespace") || "";
-    
-    const region = provider === "aws" 
-      ? (awsRegion || savedAwsRegion)
-      : (ociRegion || savedOciRegion);
-      
-    const namespace = provider === "oci" ? (ociNamespace || savedOciNamespace) : "";
-    
-    let endpoint = undefined;
-    if (provider === "oci" && namespace) {
-      const activeOciRegion = ociRegion || savedOciRegion;
-      const ociReg = OCI_REGIONS.find((r) => r.value === activeOciRegion);
-      if (ociReg) {
-        endpoint = ociReg.endpoint.replace("{namespace}", namespace);
-      }
-    }
-
-    const accessKeyId = provider === "aws" ? awsAccessKey : ociAccessKeyId;
-    const secretAccessKey = provider === "aws" ? awsSecretKey : ociSecretAccessKey;
-
-    handleStatus("loading", "Connecting and listing buckets…");
-    try {
-      // Save credentials first if inline ones were typed in the UI
-      if (isTauri && accessKeyId && secretAccessKey) {
-        await invoke("save_credentials", {
-          provider,
-          accessKeyId,
-          secretAccessKey,
-        });
-      }
-
-      const result = await invoke<string[]>("list_buckets", {
-        provider,
-        region,
-        endpoint: endpoint ?? null,
-        accessKeyId: accessKeyId || null,
-        secretAccessKey: secretAccessKey || null,
-      });
-
-      setBuckets(result);
-      handleStatus("success", `Connected — found ${result.length} bucket${result.length !== 1 ? "s" : ""}`);
-      setIsConnected(true);
-    } catch (e) {
-      handleStatus("error", `Connection failed: ${e}`);
-    } finally {
-      setConnecting(false);
-    }
-  };
-
-  useEffect(() => {
-    checkCredentials();
-
-    // Load saved settings
-    const savedAwsRegion = localStorage.getItem("aws_region");
-    if (savedAwsRegion) setAwsRegion(savedAwsRegion);
-
-    const savedOciRegion = localStorage.getItem("oci_region") || "us-phoenix-1";
-    setOciRegion(savedOciRegion);
-
-    const savedOciNamespace = localStorage.getItem("oci_namespace");
-    if (savedOciNamespace) {
-      setOciNamespace(savedOciNamespace);
-      const region = OCI_REGIONS.find((r) => r.value === savedOciRegion);
-      if (region) {
-        setOciEndpoint(region.endpoint.replace("{namespace}", savedOciNamespace));
-      }
-    } else if (isTauri) {
-      // Attempt to load namespace from .env file process variables
-      invoke<string>("get_env_var", { name: "OCI_TENANCY" })
-        .then((val) => {
-          if (val) {
-            setOciNamespace(val);
-            const region = OCI_REGIONS.find((r) => r.value === savedOciRegion);
-            if (region) {
-              setOciEndpoint(region.endpoint.replace("{namespace}", val));
-            }
-          }
-        })
-        .catch(() => {
-          invoke<string>("get_env_var", { name: "OCI_NAMESPACE" })
-            .then((val) => {
-              if (val) {
-                setOciNamespace(val);
-                const region = OCI_REGIONS.find((r) => r.value === savedOciRegion);
-                if (region) {
-                  setOciEndpoint(region.endpoint.replace("{namespace}", val));
-                }
-              }
-            })
-            .catch(console.error);
-        });
-    }
-
-    const savedAwsAccessKey = localStorage.getItem("aws_access_key");
-    if (savedAwsAccessKey) setAwsAccessKey(savedAwsAccessKey);
-    const savedAwsSecretKey = localStorage.getItem("aws_secret_key");
-    if (savedAwsSecretKey) setAwsSecretKey(savedAwsSecretKey);
-
-    const savedOciAccessKeyId = localStorage.getItem("oci_access_key_id");
-    if (savedOciAccessKeyId) {
-      setOciAccessKeyId(savedOciAccessKeyId);
-    } else if (isTauri) {
-      // Attempt to load keys from .env process variables
-      invoke<string>("get_env_var", { name: "OCI_ACCESS_KEY_ID" })
-        .then(setOciAccessKeyId)
-        .catch(console.error);
-    }
-
-    const savedOciSecretAccessKey = localStorage.getItem("oci_secret_access_key");
-    if (savedOciSecretAccessKey) {
-      setOciSecretAccessKey(savedOciSecretAccessKey);
-    } else if (isTauri) {
-      invoke<string>("get_env_var", { name: "OCI_SECRET_ACCESS_KEY" })
-        .then(setOciSecretAccessKey)
-        .catch(console.error);
-    }
-
-    const savedProvider = localStorage.getItem("active_provider") as "aws" | "oci" | null;
-    if (savedProvider) setActiveProvider(savedProvider);
-
-    const autoConnect = localStorage.getItem("auto_connect") === "true";
-    if (autoConnect && savedProvider) {
-      setTimeout(() => {
-        handleConnect(savedProvider);
-      }, 50);
-    }
-  }, [showApp]);
-
-  // Status
+  // Status state
   const [status, setStatus] = useState<StatusType>("idle");
   const [statusMsg, setStatusMsg] = useState("");
+
+  const activePreset = getPresetById(activePresetId);
 
   const handleStatus = (s: StatusType, msg: string) => {
     setStatus(s);
     setStatusMsg(msg);
     if (s === "success") {
-      checkCredentials();
+      checkCredentialsFile(activePresetId, profileName);
       if (rememberConnection) {
-        localStorage.setItem("auto_connect", "true");
-        localStorage.setItem("active_provider", activeProvider);
-        localStorage.setItem("aws_region", awsRegion);
-        localStorage.setItem("oci_region", ociRegion);
-        localStorage.setItem("oci_namespace", ociNamespace);
-        localStorage.setItem("aws_access_key", awsAccessKey);
-        localStorage.setItem("aws_secret_key", awsSecretKey);
-        localStorage.setItem("oci_access_key_id", ociAccessKeyId);
-        localStorage.setItem("oci_secret_access_key", ociSecretAccessKey);
-      } else {
-        localStorage.setItem("auto_connect", "false");
-        localStorage.removeItem("aws_access_key");
-        localStorage.removeItem("aws_secret_key");
-        localStorage.removeItem("oci_access_key_id");
-        localStorage.removeItem("oci_secret_access_key");
+        localStorageRef.setItem("auto_connect", "true");
+        localStorageRef.setItem("active_preset", activePresetId);
+        localStorageRef.setItem("config_endpoint", endpoint);
+        localStorageRef.setItem("config_region", region);
+        localStorageRef.setItem("config_access_key", accessKeyId);
+        localStorageRef.setItem("config_secret_key", secretAccessKey);
+        localStorageRef.setItem("config_force_path_style", String(forcePathStyle));
+        localStorageRef.setItem("config_profile_name", profileName);
+        localStorageRef.setItem("config_oci_namespace", ociNamespace);
       }
       setTimeout(() => setStatus("idle"), 5000);
     } else if (s === "error") {
-      // Only disconnect on initial connection error. If already connected, preserve session.
       if (!isConnected) {
-        localStorage.setItem("auto_connect", "false");
+        localStorageRef.setItem("auto_connect", "false");
         setIsConnected(false);
       }
       setTimeout(() => setStatus("idle"), 5000);
     }
   };
 
-  const handleOciRegionChange = (value: string) => {
-    setOciRegion(value);
-    const region = OCI_REGIONS.find((r) => r.value === value);
-    if (region && ociNamespace) {
-      setOciEndpoint(region.endpoint.replace("{namespace}", ociNamespace));
-    } else if (region) {
-      setOciEndpoint(region.endpoint);
+  const checkCredentialsFile = (providerId: string, profName: string) => {
+    if (isTauri) {
+      invoke<boolean>("check_credentials_exist", {
+        provider: providerId,
+        profileName: profName || undefined,
+      })
+        .then(setCredsExistInAwsFile)
+        .catch(console.error);
+    }
+  };
+
+  const handleApplyPreset = (presetId: ProviderPresetId) => {
+    setActivePresetId(presetId);
+    const preset = getPresetById(presetId);
+    setEndpoint(preset.defaultEndpoint || "");
+    setRegion(preset.defaultRegion || "us-east-1");
+    setForcePathStyle(preset.forcePathStyle);
+    const targetProfile = preset.credentialsProfileDefault || "default";
+    setProfileName(targetProfile);
+    checkCredentialsFile(presetId, targetProfile);
+  };
+
+  const handleSelectProfile = (prof: ConnectionProfile) => {
+    setActivePresetId(prof.provider);
+    setEndpoint(prof.endpoint || "");
+    setRegion(prof.region || "us-east-1");
+    setAccessKeyId(prof.accessKeyId || "");
+    setSecretAccessKey(prof.secretAccessKey || "");
+    setForcePathStyle(prof.forcePathStyle);
+    setProfileName(prof.profileName || "default");
+    checkCredentialsFile(prof.provider, prof.profileName);
+    handleStatus("success", `Loaded profile "${prof.name}"`);
+  };
+
+  const handleSaveCurrentProfile = (name: string) => {
+    const profiles = loadStoredProfiles();
+    const newProf: ConnectionProfile = {
+      id: `prof_${Date.now()}`,
+      name,
+      provider: activePresetId,
+      endpoint,
+      region,
+      accessKeyId,
+      secretAccessKey,
+      forcePathStyle,
+      useAwsCredentialsFile: !accessKeyId && !secretAccessKey,
+      profileName,
+      updatedAt: new Date().toISOString(),
+    };
+    const updated = [newProf, ...profiles.filter((p) => p.name !== name)];
+    saveStoredProfiles(updated);
+    handleStatus("success", `Profile "${name}" saved!`);
+  };
+
+  const handleConnect = async (overridePreset?: ProviderPresetId) => {
+    setConnecting(true);
+    const presetId = overridePreset || activePresetId;
+    const preset = getPresetById(presetId);
+
+    let effectiveEndpoint = endpoint;
+    if (presetId === "oci" && ociNamespace && (!endpoint || endpoint.includes("{namespace}"))) {
+      const ociReg = OCI_REGIONS.find((r) => r.value === region);
+      if (ociReg) {
+        effectiveEndpoint = ociReg.endpoint.replace("{namespace}", ociNamespace);
+      }
+    }
+
+    handleStatus("loading", `Connecting to ${preset.name}…`);
+
+    try {
+      if (isTauri && accessKeyId && secretAccessKey) {
+        await invoke("save_credentials", {
+          provider: presetId,
+          accessKeyId,
+          secretAccessKey,
+          profileName: profileName || preset.credentialsProfileDefault || "default",
+        });
+      }
+
+      const result = await invoke<string[]>("list_buckets", {
+        provider: presetId,
+        region: region || preset.defaultRegion || "us-east-1",
+        endpoint: effectiveEndpoint || null,
+        accessKeyId: accessKeyId || null,
+        secretAccessKey: secretAccessKey || null,
+        forcePathStyle,
+        profileName: profileName || preset.credentialsProfileDefault || "default",
+      });
+
+      setBuckets(result);
+      handleStatus(
+        "success",
+        `Connected to ${preset.name} — found ${result.length} bucket${result.length !== 1 ? "s" : ""}`
+      );
+      setIsConnected(true);
+    } catch (e: any) {
+      handleStatus("error", `Connection failed: ${e.message || e}`);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  useEffect(() => {
+    const savedPreset = (localStorageRef.getItem("active_preset") as ProviderPresetId) || "aws";
+    setActivePresetId(savedPreset);
+
+    const preset = getPresetById(savedPreset);
+    setEndpoint(localStorageRef.getItem("config_endpoint") || preset.defaultEndpoint || "");
+    setRegion(localStorageRef.getItem("config_region") || preset.defaultRegion || "us-east-1");
+    setAccessKeyId(localStorageRef.getItem("config_access_key") || "");
+    setSecretAccessKey(localStorageRef.getItem("config_secret_key") || "");
+    setForcePathStyle(localStorageRef.getItem("config_force_path_style") === "true" || preset.forcePathStyle);
+    setProfileName(localStorageRef.getItem("config_profile_name") || preset.credentialsProfileDefault || "default");
+    setOciNamespace(localStorageRef.getItem("config_oci_namespace") || "");
+
+    checkCredentialsFile(savedPreset, localStorageRef.getItem("config_profile_name") || preset.credentialsProfileDefault || "default");
+
+    const autoConnect = localStorageRef.getItem("auto_connect") === "true";
+    if (autoConnect && savedPreset) {
+      setTimeout(() => {
+        handleConnect(savedPreset);
+      }, 50);
+    }
+  }, [showApp]);
+
+  const handleOciRegionChange = (val: string) => {
+    setRegion(val);
+    const reg = OCI_REGIONS.find((r) => r.value === val);
+    if (reg && ociNamespace) {
+      setEndpoint(reg.endpoint.replace("{namespace}", ociNamespace));
+    } else if (reg) {
+      setEndpoint(reg.endpoint);
     }
   };
 
   const handleOciNamespaceChange = (ns: string) => {
     setOciNamespace(ns);
-    if (ociRegion) {
-      const region = OCI_REGIONS.find((r) => r.value === ociRegion);
-      if (region) {
-        setOciEndpoint(
-          ns
-            ? region.endpoint.replace("{namespace}", ns)
-            : region.endpoint
-        );
+    if (activePresetId === "oci") {
+      const reg = OCI_REGIONS.find((r) => r.value === region);
+      if (reg) {
+        setEndpoint(ns ? reg.endpoint.replace("{namespace}", ns) : reg.endpoint);
       }
     }
   };
 
   const triggerDisconnect = () => {
-    localStorage.setItem("auto_connect", "false");
+    localStorageRef.setItem("auto_connect", "false");
     setIsConnected(false);
   };
-
-  const resolvedOciEndpoint = ociEndpoint.includes("{namespace}")
-    ? undefined
-    : ociEndpoint || undefined;
 
   if (!showApp) {
     return <LandingPage onLaunchApp={() => setShowApp(true)} />;
@@ -271,7 +233,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Header */}
+      {/* Top Header */}
       <header className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-slate-950/40">
         {!isTauri && !isConnected && (
           <Button
@@ -289,15 +251,15 @@ export default function App() {
         </div>
         <div>
           <h1 className="text-sm font-semibold text-slate-100 leading-none">Vault Drop Explorer</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Secure cloud file manager</p>
+          <p className="text-xs text-slate-500 mt-0.5">S3 & Self-Hosted Object Storage Browser</p>
         </div>
 
         {isConnected && (
           <div className="flex items-center gap-2 ml-6 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-slate-300 font-medium">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="uppercase">{activeProvider}</span>
+            <span className="font-semibold uppercase">{activePreset.name}</span>
             <span className="text-slate-600">·</span>
-            <span>{activeProvider === "aws" ? awsRegion : ociRegion}</span>
+            <span>{region}</span>
           </div>
         )}
 
@@ -341,7 +303,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Area */}
+      {/* Main Container */}
       <main className="flex-1 p-6 flex flex-col min-h-0">
         {!isTauri && (
           <div className={`w-full ${isConnected ? "max-w-4xl" : "max-w-xl"} mx-auto mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex flex-col gap-1 shadow-lg`}>
@@ -349,7 +311,7 @@ export default function App() {
               ⚠️ Web Demo Mode Active
             </span>
             <span>
-              To protect your credentials, connection and file operations are simulated. Download the desktop app to access your real AWS & OCI buckets locally.
+              To protect your credentials, connection and file operations are simulated. Download the desktop app to access your MinIO, S3, or self-hosted servers locally.
             </span>
           </div>
         )}
@@ -357,285 +319,240 @@ export default function App() {
         {isConnected ? (
           <div className="w-full max-w-4xl mx-auto flex-1 flex flex-col min-h-0">
             <BucketBrowser
-              provider={activeProvider}
-              region={activeProvider === "aws" ? awsRegion : (ociRegion || "us-phoenix-1")}
-              endpoint={activeProvider === "aws" ? undefined : resolvedOciEndpoint}
-              accessKeyId={activeProvider === "aws" ? (awsAccessKey || undefined) : (ociAccessKeyId || undefined)}
-              secretAccessKey={activeProvider === "aws" ? (awsSecretKey || undefined) : (ociSecretAccessKey || undefined)}
+              provider={activePresetId}
+              region={region}
+              endpoint={endpoint || undefined}
+              accessKeyId={accessKeyId || undefined}
+              secretAccessKey={secretAccessKey || undefined}
+              forcePathStyle={forcePathStyle}
+              profileName={profileName}
               initialBuckets={buckets}
               onStatus={handleStatus}
             />
           </div>
         ) : (
-          <div className="w-full max-w-xl mx-auto">
-            <Tabs value={activeProvider} onValueChange={(val) => setActiveProvider(val as "aws" | "oci")} className="w-full">
-              <TabsList className="w-full mb-6">
-                <TabsTrigger value="aws" id="tab-aws" className="flex-1 gap-2">
-                  <img
-                    src="https://upload.wikimedia.org/wikipedia/commons/9/93/Amazon_Web_Services_Logo.svg"
-                    alt="AWS"
-                    className="h-3.5 w-auto opacity-80"
-                    onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
-                  />
-                  Amazon S3
-                </TabsTrigger>
-                <TabsTrigger value="oci" id="tab-oci" className="flex-1 gap-2">
-                  <img
-                    src="https://upload.wikimedia.org/wikipedia/commons/5/50/Oracle_logo.svg"
-                    alt="OCI"
-                    className="h-3.5 w-auto opacity-80"
-                    onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
-                  />
-                  OCI Object Storage
-                </TabsTrigger>
-              </TabsList>
+          <div className="w-full max-w-xl mx-auto space-y-4">
+            {/* Top Toolbar: Saved Profiles & Presets */}
+            <div className="bg-slate-900/60 border border-white/10 p-3 rounded-xl shadow-lg">
+              <ProfileManager
+                currentProfile={{
+                  provider: activePresetId,
+                  endpoint,
+                  region,
+                  accessKeyId,
+                  secretAccessKey,
+                  forcePathStyle,
+                  profileName,
+                }}
+                onSelectProfile={handleSelectProfile}
+                onApplyPreset={handleApplyPreset}
+                onSaveCurrentProfile={handleSaveCurrentProfile}
+                onNotify={(msg, type) => handleStatus(type === 'error' ? 'error' : 'success', msg)}
+              />
+            </div>
 
-              {/* ── AWS Tab ── */}
-              <TabsContent value="aws">
-                <Card className="bg-slate-900/40 border-white/5">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Amazon S3 Configuration</CardTitle>
-                    <CardDescription className="text-xs">
-                      {awsCredsExist
-                        ? "Using default profile in ~/.aws/credentials"
-                        : "No credentials profile found. Enter keys to configure and save them."}
+            {/* Main Provider Connection Form */}
+            <Card className="bg-slate-900/40 border-white/5 shadow-2xl">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Server className="h-5 w-5 text-indigo-400" />
+                      {activePreset.name} Configuration
+                    </CardTitle>
+                    <CardDescription className="text-xs mt-1">
+                      {activePreset.description}
                     </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-5">
-                    <div className="space-y-2">
-                      <Label htmlFor="aws-region" className="text-xs">Region</Label>
-                      <Select value={awsRegion} onValueChange={setAwsRegion}>
-                        <SelectTrigger id="aws-region">
-                          <SelectValue placeholder="Select a region" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {AWS_REGIONS.map((r) => (
-                            <SelectItem key={r.value} value={r.value}>
-                              {r.label}{" "}
-                              <span className="text-slate-500 text-xs ml-1">({r.value})</span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-indigo-950/60 border border-indigo-500/30 text-indigo-300">
+                    {activePreset.category}
+                  </span>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Endpoint URL Field (required for self-hosted / custom endpoints) */}
+                {(activePreset.requiresEndpoint || activePresetId === "minio" || activePresetId === "custom" || activePresetId === "localstack") && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="endpoint-url" className="text-xs flex items-center justify-between">
+                      <span>Server Endpoint URL</span>
+                      <span className="text-[10px] text-slate-500">e.g. http://localhost:9000</span>
+                    </Label>
+                    <Input
+                      id="endpoint-url"
+                      placeholder="http://localhost:9000"
+                      value={endpoint}
+                      onChange={(e) => setEndpoint(e.target.value)}
+                    />
+                  </div>
+                )}
 
-                    {/* Inline Credential Setup for AWS */}
-                    {!awsCredsExist && (
-                      <div className="space-y-3 p-4 bg-indigo-950/20 border border-indigo-500/20 rounded-lg">
-                        <p className="text-[11px] text-indigo-300">
-                          Configure new AWS credentials profile to save on this machine:
-                        </p>
-                        <div className="space-y-1.5">
-                          <Label htmlFor="aws-key-id" className="text-[11px]">AWS Access Key ID</Label>
-                          <Input
-                            id="aws-key-id"
-                            placeholder="AKIA..."
-                            value={awsAccessKey}
-                            onChange={(e) => setAwsAccessKey(e.target.value)}
-                            type="password"
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label htmlFor="aws-secret" className="text-[11px]">AWS Secret Access Key</Label>
-                          <Input
-                            id="aws-secret"
-                            placeholder="Secret Key"
-                            value={awsSecretKey}
-                            onChange={(e) => setAwsSecretKey(e.target.value)}
-                            type="password"
-                          />
-                        </div>
-                      </div>
-                    )}
+                {/* OCI Special Tenancy Namespace Input */}
+                {activePresetId === "oci" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="oci-namespace" className="text-xs">Tenancy Namespace</Label>
+                    <Input
+                      id="oci-namespace"
+                      placeholder="e.g. axhz1oupce..."
+                      value={ociNamespace}
+                      onChange={(e) => handleOciNamespaceChange(e.target.value)}
+                    />
+                    <p className="text-[10px] text-slate-500">
+                      Find in OCI Console → Tenancy Details → Object Storage Namespace
+                    </p>
+                  </div>
+                )}
 
-                    {/* Auto Connect Toggle Checkbox */}
-                    <div className="flex items-center gap-2 pt-2">
-                      <input
-                        type="checkbox"
-                        id="remember-aws"
-                        checked={rememberConnection}
-                        onChange={(e) => setRememberConnection(e.target.checked)}
-                        className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900 cursor-pointer"
-                      />
-                      <Label htmlFor="remember-aws" className="text-xs text-slate-400 cursor-pointer">
-                        Remember this connection and auto-connect next time
-                      </Label>
-                    </div>
+                {/* Region Selector or Text Input */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="region-input" className="text-xs">Region</Label>
+                  {activePresetId === "aws" ? (
+                    <Select value={region} onValueChange={setRegion}>
+                      <SelectTrigger id="region-input">
+                        <SelectValue placeholder="Select an AWS region" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AWS_REGIONS.map((r) => (
+                          <SelectItem key={r.value} value={r.value}>
+                            {r.label} <span className="text-slate-500 text-xs ml-1">({r.value})</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : activePresetId === "oci" ? (
+                    <Select value={region} onValueChange={handleOciRegionChange}>
+                      <SelectTrigger id="region-input">
+                        <SelectValue placeholder="Select an OCI region" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {OCI_REGIONS.map((r) => (
+                          <SelectItem key={r.value} value={r.value}>
+                            {r.label} <span className="text-slate-500 text-xs ml-1">({r.value})</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      id="region-input"
+                      placeholder="us-east-1"
+                      value={region}
+                      onChange={(e) => setRegion(e.target.value)}
+                    />
+                  )}
+                </div>
 
-                    <Button
-                      id="connect-aws"
-                      onClick={() => handleConnect("aws")}
-                      disabled={connecting || !awsRegion}
-                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-lg shadow-indigo-600/20 py-6 transition-all duration-200 mt-2"
-                      size="lg"
-                    >
-                      {connecting ? (
-                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                      ) : (
-                        <LayoutGrid className="h-5 w-5 mr-2" />
-                      )}
-                      {connecting ? "Connecting to S3 Account…" : "Connect & List Buckets"}
-                    </Button>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* ── OCI Tab ── */}
-              <TabsContent value="oci">
-                <Card className="bg-slate-900/40 border-white/5">
-                  <CardHeader>
-                    <CardTitle className="text-lg">OCI Configuration</CardTitle>
-                    <CardDescription className="text-xs">
-                      {ociCredsExist
-                        ? "Using [oci] profile in ~/.aws/credentials"
-                        : "No [oci] credentials found. Enter keys to configure and save them."}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-5">
-                    {/* Region selector */}
-                    <div className="space-y-2">
-                      <Label htmlFor="oci-region" className="text-xs">Region</Label>
-                      <Select value={ociRegion} onValueChange={handleOciRegionChange}>
-                        <SelectTrigger id="oci-region">
-                          <SelectValue placeholder="Select an OCI region" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {OCI_REGIONS.map((r) => (
-                            <SelectItem key={r.value} value={r.value}>
-                              {r.label}{" "}
-                              <span className="text-slate-500 text-xs ml-1">({r.value})</span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Namespace */}
-                    <div className="space-y-2">
-                      <Label htmlFor="oci-namespace" className="text-xs">Tenancy Namespace</Label>
-                      <Input
-                        id="oci-namespace"
-                        placeholder="e.g. axhz1oupce..."
-                        value={ociNamespace}
-                        onChange={(e) => handleOciNamespaceChange(e.target.value)}
-                      />
-                      <p className="text-[10px] text-slate-500">
-                        Find it in OCI Console → Tenancy Details → Object Storage Namespace
-                      </p>
-                    </div>
-
-                    {/* Endpoint (auto-filled, but editable) */}
-                    <div className="space-y-2">
-                      <Label htmlFor="oci-endpoint" className="text-xs">S3-Compatible Endpoint</Label>
-                      <Input
-                        id="oci-endpoint"
-                        placeholder="Auto-filled when you select a region"
-                        value={ociEndpoint}
-                        onChange={(e) => setOciEndpoint(e.target.value)}
-                      />
-                    </div>
-
-                    {/* Inline Credential Setup for OCI */}
-                    {!ociCredsExist ? (
-                      <div className="space-y-3 p-4 bg-indigo-950/20 border border-indigo-500/20 rounded-lg">
-                        <p className="text-[11px] text-indigo-300">
-                          Configure new OCI credentials profile to save on this machine:
-                        </p>
-                        <div className="space-y-1.5">
-                          <Label htmlFor="oci-key-id" className="text-[11px]">OCI Access Key ID</Label>
-                          <Input
-                            id="oci-key-id"
-                            placeholder="OCI customer secret key ID"
-                            value={ociAccessKeyId}
-                            onChange={(e) => setOciAccessKeyId(e.target.value)}
-                            type="password"
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label htmlFor="oci-secret" className="text-[11px]">OCI Secret Access Key</Label>
-                          <Input
-                            id="oci-secret"
-                            placeholder="OCI customer secret key"
-                            value={ociSecretAccessKey}
-                            onChange={(e) => setOciSecretAccessKey(e.target.value)}
-                            type="password"
-                          />
-                        </div>
-                      </div>
+                {/* Credentials Profile Box & Key Inputs */}
+                <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-lg space-y-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-300">Access Key Credentials</span>
+                    {credsExistInAwsFile ? (
+                      <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
+                        <CheckCircle className="h-3 w-3" /> Found [{profileName}] in ~/.aws/credentials
+                      </span>
                     ) : (
-                      <div>
-                        <button
-                          id="oci-advanced-toggle"
-                          type="button"
-                          onClick={() => setShowOciAdvanced((v) => !v)}
-                          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-                        >
-                          {showOciAdvanced ? (
-                            <ChevronUp className="h-3 w-3" />
-                          ) : (
-                            <ChevronDown className="h-3 w-3" />
-                          )}
-                          Inline credentials override (optional)
-                        </button>
-                        {showOciAdvanced && (
-                          <div className="mt-3 space-y-3 pl-3 border-l border-white/10">
-                            <div className="space-y-2">
-                              <Label htmlFor="oci-key-id">Access Key ID</Label>
-                              <Input
-                                id="oci-key-id"
-                                placeholder="OCI customer secret key ID"
-                                value={ociAccessKeyId}
-                                onChange={(e) => setOciAccessKeyId(e.target.value)}
-                                type="password"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="oci-secret">Secret Access Key</Label>
-                              <Input
-                                id="oci-secret"
-                                placeholder="OCI customer secret key"
-                                value={ociSecretAccessKey}
-                                onChange={(e) => setOciSecretAccessKey(e.target.value)}
-                                type="password"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      <span className="text-[11px] text-amber-400 font-medium">
+                        Enter keys below to auto-save to [{profileName}] profile
+                      </span>
                     )}
+                  </div>
 
-                    {/* Auto Connect Toggle Checkbox */}
-                    <div className="flex items-center gap-2 pt-2">
-                      <input
-                        type="checkbox"
-                        id="remember-oci"
-                        checked={rememberConnection}
-                        onChange={(e) => setRememberConnection(e.target.checked)}
-                        className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900 cursor-pointer"
+                  <div className="space-y-2">
+                    <div>
+                      <Label htmlFor="access-key" className="text-[11px] text-slate-400">Access Key ID</Label>
+                      <Input
+                        id="access-key"
+                        placeholder={credsExistInAwsFile && !accessKeyId ? `Using ~/.aws/credentials [${profileName}]` : "Access Key / MinIO Username"}
+                        value={accessKeyId}
+                        onChange={(e) => setAccessKeyId(e.target.value)}
+                        type="password"
                       />
-                      <Label htmlFor="remember-oci" className="text-xs text-slate-400 cursor-pointer">
-                        Remember this connection and auto-connect next time
-                      </Label>
                     </div>
+                    <div>
+                      <Label htmlFor="secret-key" className="text-[11px] text-slate-400">Secret Access Key</Label>
+                      <Input
+                        id="secret-key"
+                        placeholder={credsExistInAwsFile && !secretAccessKey ? `Using ~/.aws/credentials [${profileName}]` : "Secret Key / MinIO Password"}
+                        value={secretAccessKey}
+                        onChange={(e) => setSecretAccessKey(e.target.value)}
+                        type="password"
+                      />
+                    </div>
+                  </div>
+                </div>
 
-                    <Button
-                      id="connect-oci"
-                      onClick={() => handleConnect("oci")}
-                      disabled={connecting || !ociRegion}
-                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-lg shadow-indigo-600/20 py-6 transition-all duration-200 mt-2"
-                      size="lg"
-                    >
-                      {connecting ? (
-                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                      ) : (
-                        <LayoutGrid className="h-5 w-5 mr-2" />
-                      )}
-                      {connecting ? "Connecting to OCI Account…" : "Connect & List Buckets"}
-                    </Button>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
+                {/* Advanced Options Toggle (Force Path Style & Custom AWS Profile Name) */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvanced((v) => !v)}
+                    className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors py-1"
+                  >
+                    {showAdvanced ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    Advanced S3 Settings (Path Style & Profile Tag)
+                  </button>
+                  {showAdvanced && (
+                    <div className="mt-2 space-y-3 p-3 bg-slate-950/40 border border-slate-800 rounded-lg text-xs">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="force-path-style"
+                          checked={forcePathStyle}
+                          onChange={(e) => setForcePathStyle(e.target.checked)}
+                          className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <Label htmlFor="force-path-style" className="text-xs text-slate-300 cursor-pointer">
+                          Force Path-Style Access (<code className="text-indigo-300">http://endpoint/bucket</code>) — Required for MinIO & LocalStack
+                        </Label>
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="aws-profile-name" className="text-[11px] text-slate-400">
+                          Credentials Profile Name (in <code className="text-slate-300">~/.aws/credentials</code>)
+                        </Label>
+                        <Input
+                          id="aws-profile-name"
+                          placeholder="default"
+                          value={profileName}
+                          onChange={(e) => {
+                            setProfileName(e.target.value);
+                            checkCredentialsFile(activePresetId, e.target.value);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Auto Connect Toggle Checkbox */}
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="remember-connection"
+                    checked={rememberConnection}
+                    onChange={(e) => setRememberConnection(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  />
+                  <Label htmlFor="remember-connection" className="text-xs text-slate-400 cursor-pointer">
+                    Remember connection and auto-connect next time
+                  </Label>
+                </div>
+
+                {/* Connect Button */}
+                <Button
+                  id="connect-btn"
+                  onClick={() => handleConnect()}
+                  disabled={connecting}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-lg shadow-indigo-600/20 py-6 transition-all duration-200 mt-2"
+                  size="lg"
+                >
+                  {connecting ? (
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                  ) : (
+                    <LayoutGrid className="h-5 w-5 mr-2" />
+                  )}
+                  {connecting ? `Connecting to ${activePreset.name}…` : `Connect & List Buckets`}
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         )}
       </main>

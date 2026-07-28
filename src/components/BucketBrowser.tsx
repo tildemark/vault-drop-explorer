@@ -26,11 +26,13 @@ import {
 import type { StatusType } from "@/components/StatusBar";
 
 interface BucketBrowserProps {
-  provider: "aws" | "oci";
+  provider: string;
   region: string;
   endpoint?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  forcePathStyle?: boolean;
+  profileName?: string;
   initialBuckets: string[];
   onStatus: (status: StatusType, message: string) => void;
 }
@@ -75,6 +77,8 @@ export function BucketBrowser({
   endpoint,
   accessKeyId,
   secretAccessKey,
+  forcePathStyle,
+  profileName,
   initialBuckets,
   onStatus,
 }: BucketBrowserProps) {
@@ -115,6 +119,8 @@ export function BucketBrowser({
         endpoint: endpoint ?? null,
         accessKeyId: accessKeyId ?? null,
         secretAccessKey: secretAccessKey ?? null,
+        forcePathStyle: forcePathStyle ?? null,
+        profileName: profileName ?? null,
       });
       onStatus("success", `Bucket '${newBucketName}' created successfully!`);
       const result = await invoke<string[]>("list_buckets", {
@@ -123,6 +129,8 @@ export function BucketBrowser({
         endpoint: endpoint ?? null,
         accessKeyId: accessKeyId ?? null,
         secretAccessKey: secretAccessKey ?? null,
+        forcePathStyle: forcePathStyle ?? null,
+        profileName: profileName ?? null,
       });
       setBuckets(result);
       setNewBucketName("");
@@ -151,6 +159,8 @@ export function BucketBrowser({
         endpoint: endpoint ?? null,
         accessKeyId: accessKeyId ?? null,
         secretAccessKey: secretAccessKey ?? null,
+        forcePathStyle: forcePathStyle ?? null,
+        profileName: profileName ?? null,
       });
 
       // Eventually consistent S3 API retry check
@@ -195,6 +205,8 @@ export function BucketBrowser({
         endpoint: endpoint ?? null,
         accessKeyId: accessKeyId ?? null,
         secretAccessKey: secretAccessKey ?? null,
+        forcePathStyle: forcePathStyle ?? null,
+        profileName: profileName ?? null,
       });
       onStatus("success", `${fileName} uploaded successfully`);
       await new Promise((resolve) => setTimeout(resolve, 600));
@@ -226,6 +238,8 @@ export function BucketBrowser({
         endpoint: endpoint ?? null,
         accessKeyId: accessKeyId ?? null,
         secretAccessKey: secretAccessKey ?? null,
+        forcePathStyle: forcePathStyle ?? null,
+        profileName: profileName ?? null,
       });
       onStatus("success", `${fileName} saved successfully`);
     } catch (e) {
@@ -255,6 +269,8 @@ export function BucketBrowser({
         endpoint: endpoint ?? null,
         accessKeyId: accessKeyId ?? null,
         secretAccessKey: secretAccessKey ?? null,
+        forcePathStyle: forcePathStyle ?? null,
+        profileName: profileName ?? null,
       });
       onStatus("success", `Deleted file successfully`);
       await new Promise((resolve) => setTimeout(resolve, 600));
@@ -302,6 +318,8 @@ export function BucketBrowser({
                     endpoint: endpoint ?? null,
                     accessKeyId: accessKeyId ?? null,
                     secretAccessKey: secretAccessKey ?? null,
+                    forcePathStyle: forcePathStyle ?? null,
+                    profileName: profileName ?? null,
                   });
                 } catch (err) {
                   onStatus("error", `Upload failed for ${fileName}: ${err}`);
@@ -363,6 +381,8 @@ export function BucketBrowser({
         endpoint: endpoint ?? null,
         accessKeyId: accessKeyId ?? null,
         secretAccessKey: secretAccessKey ?? null,
+        forcePathStyle: forcePathStyle ?? null,
+        profileName: profileName ?? null,
       });
       const ext = obj.key.split(".").pop()?.toLowerCase();
       const mime = ext === "svg" ? "image/svg+xml" : `image/${ext || "png"}`;
